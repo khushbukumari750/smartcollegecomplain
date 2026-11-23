@@ -1,7 +1,7 @@
 # Smart College Complaint Management System
 **Oriental College of Technology (OCT)**  
 *A modern, secure, and real-time grievance redressal system built with pure HTML, CSS, JavaScript (ES modules), and Google Firebase.*
-
+*Live Project* - https://smartcollegecomplaint.netlify.app/
 ---
 
 ## 📌 Project Overview
