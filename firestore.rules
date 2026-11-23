@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function getUserRole() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? getUserData().role
+        : null;
+    }
+
+    function isStudent() {
+      return getUserRole() == 'student';
+    }
+
+    function isAuthority() {
+      return getUserRole() in ['TG', 'Warden', 'HOD', 'Dean', 'Director', 'Admin'];
+    }
+
+    function isAdmin() {
+      return getUserRole() == 'Admin';
+    }
+
+    // USERS COLLECTION
+    // - Authenticated users can read their own profile; Admin can read all
+    // - New users can register with role 'student' (or via admin/seed)
+    // - Users CANNOT change their own role
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAuthority());
+      allow create: if isAuthenticated() && request.auth.uid == userId
+                    && (request.resource.data.role == 'student' || isAdmin());
+      allow update: if isAuthenticated() && (
+        (request.auth.uid == userId && request.resource.data.role == resource.data.role)
+        || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // COUNTERS COLLECTION (for safe readable sequential IDs CMP-YYYY-XXXX)
+    match /counters/{counterId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // COMPLAINTS COLLECTION
+    // - Students can create complaints for themselves, read their own
+    // - Authorities can read complaints assigned to their role, or all if Admin
+    // - Authorities can update complaints assigned to their role, or all if Admin
+    // - Students can update feedback/rating only when Resolved
+    match /complaints/{complaintId} {
+      allow create: if isAuthenticated()
+                    && request.resource.data.studentUid == request.auth.uid;
+
+      allow read: if isAuthenticated() && (
+        resource.data.studentUid == request.auth.uid ||
+        resource.data.currentAssignee == getUserRole() ||
+        isAdmin()
+      );
+
+      allow update: if isAuthenticated() && (
+        // Authority assigned to complaint or Admin updating status/assignment/history
+        (resource.data.currentAssignee == getUserRole() || isAdmin()) ||
+        // Student rating / feedback when resolved
+        (resource.data.studentUid == request.auth.uid && resource.data.status == 'Resolved') ||
+        // Student reopening resolved complaint
+        (resource.data.studentUid == request.auth.uid && resource.data.status == 'Resolved' && request.resource.data.status == 'Reopened')
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // NOTIFICATIONS COLLECTION
+    // - Users can read and update (mark as read) only notifications directed to their UID
+    // - Any authenticated user or authority can create a notification directed to another user/authority
+    match /notifications/{notificationId} {
+      allow read: if isAuthenticated() && resource.data.toUid == request.auth.uid;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && resource.data.toUid == request.auth.uid;
+      allow delete: if isAuthenticated() && (resource.data.toUid == request.auth.uid || isAdmin());
+    }
+  }
+}

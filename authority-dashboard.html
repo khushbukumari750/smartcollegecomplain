@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authority Dashboard - Smart College Complaint System | OCT</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header class="app-header">
+        <div class="header-container">
+            <div class="brand">
+                <div>
+                    <span class="brand-logo-text">Oriental College of Technology</span>
+                    <span class="brand-subtitle">Smart College Complaint Management System</span>
+                </div>
+            </div>
+            <div class="nav-actions">
+                <span class="user-badge" id="authorityBadge">🏛️ Loading...</span>
+                <a href="notifications.html" class="btn btn-outline" style="color:white; border-color: rgba(255,255,255,0.4); position:relative;">
+                    🔔 Notifications
+                    <span id="unreadCountBadge" style="display:none; background:#ef4444; color:white; border-radius:50%; padding:2px 6px; font-size:0.75rem; margin-left:4px;">0</span>
+                </a>
+                <span id="adminLinkContainer"></span>
+                <button id="logoutBtn" class="btn btn-danger btn-sm">
+                    Logout
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="dashboard-container">
+        <!-- Top Box -->
+        <div class="top-box">
+            <div class="top-box-header">
+                <div>
+                    <h1 style="color:var(--primary-dark); font-size:1.6rem;">Authority Grievance Portal</h1>
+                    <p style="color:var(--text-muted); font-size:0.95rem;">
+                        Logged in as: <strong id="authorityNameDisplay">—</strong> | Assigned Role: <span class="badge badge-accepted" id="authorityRoleBadge">—</span>
+                    </p>
+                </div>
+                <div class="top-box-actions">
+                    <span id="autoEscalateStatus" style="font-size:0.85rem; color:var(--text-muted);">
+                        ⚡ Auto-Escalation Engine Active
+                    </span>
+                </div>
+            </div>
+
+            <!-- Search and Filter Bar -->
+            <div class="search-filter-bar">
+                <input 
+                    type="text" 
+                    id="searchInput" 
+                    placeholder="Search by ID, Student Name, Location, Description..."
+                    aria-label="Search Grievances"
+                >
+                <select id="statusFilter" aria-label="Filter Status">
+                    <option value="ALL">All Assigned Statuses</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Accepted">Accepted</option>
+                    <option value="Forwarded">Forwarded</option>
+                    <option value="Escalated">Escalated</option>
+                    <option value="Reopened">Reopened</option>
+                    <option value="Resolved">Resolved</option>
+                    <option value="Rejected">Rejected</option>
+                </select>
+                <select id="priorityFilter" aria-label="Filter Priority">
+                    <option value="ALL">All Priorities</option>
+                    <option value="High">🔴 High</option>
+                    <option value="Medium">🟡 Medium</option>
+                    <option value="Low">🟢 Low</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Assigned Complaints List -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+            <h2 style="font-size:1.25rem; color:var(--primary-dark);">
+                Assigned Grievance Queue (<span id="queueCount">0</span>)
+            </h2>
+        </div>
+
+        <div id="complaintsList">
+            <div class="spinner-box">
+                <div class="spinner"></div>
+                <p>Syncing assigned grievances in real time...</p>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { 
+            db, 
+            collection, 
+            query, 
+            onSnapshot, 
+            doc, 
+            updateDoc, 
+            serverTimestamp, 
+            arrayUnion, 
+            where 
+        } from "./js/firebase-config.js";
+
+        import { requireAuth, logoutUser } from "./js/auth.js";
+        import { 
+            escapeHTML, 
+            formatDateTime, 
+            getStatusBadgeClass, 
+            getPriorityBadgeClass, 
+            createNotification, 
+            showToast, 
+            showModal, 
+            AUTHORITY_ROLES, 
+            checkAndEscalateComplaints 
+        } from "./js/utils.js";
+
+        // Route Guard: Authority roles only
+        const allowedAuthorities = ["TG", "Warden", "HOD", "Dean", "Director", "Admin"];
+        const authData = (await requireAuth({ allowedRoles: allowedAuthorities })) || {};
+        const { user = {}, profile = {} } = authData;
+
+        const myRole = (profile && profile.role) || "Authority";
+        const myName = (profile && profile.name) || (user && user.email) || "Authority";
+
+        // Populate header details
+        document.getElementById("authorityBadge").textContent = `🏛️ ${myRole}`;
+        document.getElementById("authorityNameDisplay").textContent = myName;
+        document.getElementById("authorityRoleBadge").textContent = myRole;
+
+        // Show Admin Analytics link if user is Admin
+        if (myRole === "Admin") {
+            const adminContainer = document.getElementById("adminLinkContainer");
+            adminContainer.innerHTML = `
+                <a href="admin-dashboard.html" class="btn btn-primary btn-sm">
+                    📊 Admin Analytics
+                </a>
+            `;
+        }
+
+        // Realtime Unread Notifications counter
+        const unreadBadge = document.getElementById("unreadCountBadge");
+        const notifQuery = query(
+            collection(db, "notifications"),
+            where("toRole", "==", myRole),
+            where("read", "==", false)
+        );
+        onSnapshot(notifQuery, (snapshot) => {
+            const count = snapshot.size;
+            if (count > 0) {
+                unreadBadge.textContent = String(count);
+                unreadBadge.style.display = "inline-block";
+            } else {
+                unreadBadge.style.display = "none";
+            }
+        });
+
+        // Logout
+        document.getElementById("logoutBtn").addEventListener("click", async () => {
+            await logoutUser();
+            showToast("Logged out successfully.", "info");
+            setTimeout(() => window.location.replace("authority-login.html"), 400);
+        });
+
+        // Live complaints queue
+        let allComplaints = [];
+        const complaintsContainer = document.getElementById("complaintsList");
+        const searchInput = document.getElementById("searchInput");
+        const statusFilter = document.getElementById("statusFilter");
+        const priorityFilter = document.getElementById("priorityFilter");
+        const queueCount = document.getElementById("queueCount");
+
+        // Listen for all complaints; filter by role on client (Admin sees all, others see currentAssignee == myRole)
+        const complaintsColl = collection(db, "complaints");
+
+        let initialLoad = true;
+
+        onSnapshot(complaintsColl, async (snapshot) => {
+            allComplaints = [];
+            snapshot.forEach((docSnap) => {
+                allComplaints.push({
+                    firestoreId: docSnap.id,
+                    ...docSnap.data()
+                });
+            });
+
+            // Run Auto-Escalation check on load / updates for pending complaints older than 24 hours
+            if (initialLoad) {
+                initialLoad = false;
+                const escalated = await checkAndEscalateComplaints(db, allComplaints, 24);
+                if (escalated > 0) {
+                    showToast(`Auto-escalated ${escalated} overdue grievance(s).`, "info");
+                }
+            }
+
+            renderQueue();
+        }, (err) => {
+            console.error("Firestore onSnapshot error:", err);
+            complaintsContainer.innerHTML = `
+                <div class="empty-state">
+                    <p style="color:var(--danger);">Error syncing queue: ${escapeHTML(err.message)}</p>
+                </div>
+            `;
+        });
+
+        // Search & Filter listeners
+        searchInput.addEventListener("input", renderQueue);
+        statusFilter.addEventListener("change", renderQueue);
+        priorityFilter.addEventListener("change", renderQueue);
+
+        function renderQueue() {
+            const searchTerm = searchInput.value.trim().toLowerCase();
+            const selectedStatus = statusFilter.value;
+            const selectedPriority = priorityFilter.value;
+
+            // Role filtering:
+            // Admin sees ALL complaints
+            // Other authorities see ONLY complaints where currentAssignee === myRole
+            const roleFiltered = allComplaints.filter((c) => {
+                if (myRole === "Admin") return true;
+                return c.currentAssignee === myRole;
+            });
+
+            queueCount.textContent = String(roleFiltered.length);
+
+            // Apply search and filter dropdowns
+            const displayList = roleFiltered.filter((c) => {
+                const matchesSearch = !searchTerm || [
+                    c.id,
+                    c.studentName,
+                    c.studentEmail,
+                    c.category,
+                    c.type,
+                    c.location,
+                    c.description,
+                    c.currentAssignee
+                ].some((val) => String(val || "").toLowerCase().includes(searchTerm));
+
+                const matchesStatus = selectedStatus === "ALL" || c.status === selectedStatus;
+                const matchesPriority = selectedPriority === "ALL" || c.priority === selectedPriority;
+
+                return matchesSearch && matchesStatus && matchesPriority;
+            });
+
+            // Sort by priority (High first), then newest
+            displayList.sort((a, b) => {
+                const pOrder = { "High": 3, "Medium": 2, "Low": 1 };
+                const pDiff = (pOrder[b.priority] || 2) - (pOrder[a.priority] || 2);
+                if (pDiff !== 0) return pDiff;
+
+                const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (new Date(a.createdAt || 0)).getTime();
+                const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (new Date(b.createdAt || 0)).getTime();
+                return timeB - timeA;
+            });
+
+            if (displayList.length === 0) {
+                complaintsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <h3>No Grievances in Queue</h3>
+                        <p style="margin-top:6px;">
+                            ${roleFiltered.length === 0 ? `There are currently no grievances assigned to ${myRole}.` : "No complaints match your active filter."}
+                        </p>
+                    </div>
+                `;
+                return;
+            }
+
+            complaintsContainer.innerHTML = "";
+
+            displayList.forEach((c) => {
+                const card = document.createElement("div");
+                card.className = "complaint-card";
+
+                const statusClass = getStatusBadgeClass(c.status);
+                const priorityClass = getPriorityBadgeClass(c.priority);
+
+                // Build history timeline entries
+                const history = Array.isArray(c.history) ? c.history : [];
+                let timelineHtml = "";
+                if (history.length > 0) {
+                    timelineHtml = history.map((entry) => `
+                        <div class="timeline-entry">
+                            <div class="timeline-entry-header">
+                                <span>${escapeHTML(entry.action)} by <em>${escapeHTML(entry.byRole || "Authority")}</em></span>
+                                <span class="timeline-entry-time">${escapeHTML(formatDateTime(entry.timestamp))}</span>
+                            </div>
+                            ${entry.comment ? `<div class="timeline-entry-comment">${escapeHTML(entry.comment)}</div>` : ""}
+                        </div>
+                    `).join("");
+                } else {
+                    timelineHtml = `<p style="font-size:0.85rem; color:var(--text-muted);">No activity recorded yet.</p>`;
+                }
+
+                // Proof rendering
+                let proofHtml = "";
+                if (c.proofUrl) {
+                    const isVideo = c.proofUrl.includes(".mp4") || c.proofUrl.includes(".webm") || c.proofUrl.includes("video");
+                    if (isVideo) {
+                        proofHtml = `
+                            <div class="proof-preview-box">
+                                <strong>Attached Proof:</strong><br>
+                                <video src="${escapeHTML(c.proofUrl)}" controls style="max-width:240px; max-height:160px; margin-top:6px; border-radius:4px;"></video>
+                            </div>
+                        `;
+                    } else {
+                        proofHtml = `
+                            <div class="proof-preview-box">
+                                <strong>Attached Proof:</strong><br>
+                                <a href="${escapeHTML(c.proofUrl)}" target="_blank" rel="noopener noreferrer">
+                                    <img src="${escapeHTML(c.proofUrl)}" alt="Complaint Proof" class="proof-img" style="margin-top:6px;">
+                                </a>
+                            </div>
+                        `;
+                    }
+                }
+
+                // Rating & Feedback view (if resolved & rated)
+                let ratingHtml = "";
+                if (c.rating && c.rating > 0) {
+                    ratingHtml = `
+                        <div class="feedback-box" style="margin-top:12px;">
+                            <strong style="color:var(--success-hover);">Student Rating: ${"⭐".repeat(c.rating)} (${c.rating}/5)</strong>
+                            <p style="font-size:0.875rem; margin-top:4px;"><strong>Feedback:</strong> ${escapeHTML(c.feedback || "None")}</p>
+                        </div>
+                    `;
+                }
+
+                // Action buttons based on status
+                const isTerminal = c.status === "Resolved" || c.status === "Rejected";
+
+                let actionButtonsHtml = "";
+                if (!isTerminal) {
+                    actionButtonsHtml = `
+                        <div class="button-group" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; padding-top:14px; border-top:1px solid #f1f5f9;">
+                            ${c.status !== "Accepted" ? `
+                                <button type="button" class="btn btn-primary btn-sm action-accept-btn" data-docid="${c.firestoreId}">
+                                    ✅ Accept
+                                </button>
+                            ` : ""}
+                            <button type="button" class="btn btn-secondary btn-sm action-comment-btn" data-docid="${c.firestoreId}">
+                                💬 Add Comment
+                            </button>
+                            <button type="button" class="btn btn-outline btn-sm action-forward-btn" data-docid="${c.firestoreId}">
+                                ↗️ Forward
+                            </button>
+                            <button type="button" class="btn btn-success btn-sm action-resolve-btn" data-docid="${c.firestoreId}">
+                                ✔️ Mark Resolved
+                            </button>
+                            <button type="button" class="btn btn-danger btn-sm action-reject-btn" data-docid="${c.firestoreId}">
+                                ❌ Reject
+                            </button>
+                        </div>
+                    `;
+                }
+
+                card.innerHTML = `
+                    <div class="card-header">
+                        <span class="complaint-code">${escapeHTML(c.id || "Grievance")}</span>
+                        <div class="badges-row">
+                            <span class="priority ${priorityClass}">Priority: ${escapeHTML(c.priority || "Medium")}</span>
+                            <span class="badge ${statusClass}">${escapeHTML(c.status || "Pending")}</span>
+                        </div>
+                    </div>
+
+                    <div class="card-meta-grid">
+                        <div class="meta-item">
+                            <strong>Student:</strong> ${escapeHTML(c.studentName || "—")} (${escapeHTML(c.department || "Dept")})
+                        </div>
+                        <div class="meta-item">
+                            <strong>Category:</strong> ${escapeHTML(c.category || "—")}
+                        </div>
+                        <div class="meta-item">
+                            <strong>Specific Type:</strong> ${escapeHTML(c.type || "—")}
+                        </div>
+                        <div class="meta-item">
+                            <strong>Location:</strong> ${escapeHTML(c.location || "—")}
+                        </div>
+                        <div class="meta-item">
+                            <strong>Assigned Authority:</strong> <span class="badge badge-accepted" style="font-size:0.8rem;">${escapeHTML(c.currentAssignee || "Unassigned")}</span>
+                        </div>
+                        <div class="meta-item">
+                            <strong>Submitted:</strong> ${escapeHTML(formatDateTime(c.createdAt))}
+                        </div>
+                    </div>
+
+                    <div class="complaint-desc-box">
+                        <strong>Student Description:</strong><br>
+                        ${escapeHTML(c.description || "No description provided.")}
+                    </div>
+
+                    ${proofHtml}
+                    ${ratingHtml}
+
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+                        <button type="button" class="btn btn-outline btn-sm toggle-timeline-btn" data-target="timeline_${c.firestoreId}">
+                            📋 View Activity &amp; Timeline (${history.length})
+                        </button>
+                    </div>
+
+                    <div id="timeline_${c.firestoreId}" class="timeline-box" style="display:none;">
+                        <div class="timeline-title">Complete Activity History</div>
+                        <div class="timeline-list">
+                            ${timelineHtml}
+                        </div>
+                    </div>
+
+                    ${actionButtonsHtml}
+                `;
+
+                complaintsContainer.appendChild(card);
+            });
+
+            attachActionHandlers();
+        }
+
+        function attachActionHandlers() {
+            // Timeline toggle
+            document.querySelectorAll(".toggle-timeline-btn").forEach((btn) => {
+                btn.addEventListener("click", () => {
+                    const targetId = btn.getAttribute("data-target");
+                    const box = document.getElementById(targetId);
+                    if (box) {
+                        const isHidden = box.style.display === "none";
+                        box.style.display = isHidden ? "block" : "none";
+                        btn.textContent = isHidden ? "Hide Timeline" : `📋 View Activity & Timeline`;
+                    }
+                });
+            });
+
+            // 1. ACCEPT ACTION
+            document.querySelectorAll(".action-accept-btn").forEach((btn) => {
+                btn.addEventListener("click", async () => {
+                    const docId = btn.getAttribute("data-docid");
+                    const c = allComplaints.find((item) => item.firestoreId === docId);
+
+                    const modal = await showModal({
+                        title: `Accept Grievance: ${c ? c.id : ""}`,
+                        bodyHtml: `
+                            <p style="font-size:0.95rem; color:#475569; margin-bottom:12px;">
+                                Acknowledge and accept responsibility for investigating this grievance.
+                            </p>
+                            <div class="form-group">
+                                <label for="acceptComment">Optional Acceptance Note</label>
+                                <textarea id="acceptComment" name="acceptComment" placeholder="e.g. Under investigation by the department..."></textarea>
+                            </div>
+                        `,
+                        confirmText: "Confirm Acceptance",
+                        confirmClass: "btn-primary"
+                    });
+
+                    if (modal.confirmed) {
+                        const note = modal.data?.acceptComment?.trim() || `Complaint accepted by ${myRole} (${myName}).`;
+                        try {
+                            const nowIso = new Date().toISOString();
+                            const historyEntry = {
+                                action: "Accepted",
+                                byRole: myRole,
+                                comment: note,
+                                timestamp: nowIso
+                            };
+
+                            await updateDoc(doc(db, "complaints", docId), {
+                                status: "Accepted",
+                                history: arrayUnion(historyEntry),
+                                updatedAt: serverTimestamp()
+                            });
+
+                            if (c && c.studentUid) {
+                                await createNotification(db, {
+                                    toUid: c.studentUid,
+                                    title: `Complaint Accepted (${c.id})`,
+                                    message: `${myRole} has accepted your grievance and begun review.`,
+                                    complaintId: docId
+                                });
+                            }
+
+                            showToast("Complaint marked as Accepted.", "success");
+                        } catch (err) {
+                            showToast("Failed to accept: " + err.message, "error");
+                        }
+                    }
+                });
+            });
+
+            // 2. COMMENT ACTION (Empty comment blocked)
+            document.querySelectorAll(".action-comment-btn").forEach((btn) => {
+                btn.addEventListener("click", async () => {
+                    const docId = btn.getAttribute("data-docid");
+                    const c = allComplaints.find((item) => item.firestoreId === docId);
+
+                    const modal = await showModal({
+                        title: `Add Comment: ${c ? c.id : ""}`,
+                        bodyHtml: `
+                            <div class="form-group">
+                                <label for="commentText">Official Comment *</label>
+                                <textarea id="commentText" name="commentText" placeholder="Enter status update or question for the student..." required></textarea>
+                            </div>
+                        `,
+                        confirmText: "Post Comment",
+                        confirmClass: "btn-secondary"
+                    });
+
+                    if (modal.confirmed) {
+                        const comment = modal.data?.commentText?.trim();
+                        if (!comment) {
+                            showToast("Comment cannot be empty.", "error");
+                            return;
+                        }
+
+                        try {
+                            const nowIso = new Date().toISOString();
+                            const historyEntry = {
+                                action: "Comment",
+                                byRole: myRole,
+                                comment: comment,
+                                timestamp: nowIso
+                            };
+
+                            await updateDoc(doc(db, "complaints", docId), {
+                                history: arrayUnion(historyEntry),
+                                updatedAt: serverTimestamp()
+                            });
+
+                            if (c && c.studentUid) {
+                                await createNotification(db, {
+                                    toUid: c.studentUid,
+                                    title: `New Comment on ${c.id}`,
+                                    message: `${myRole}: "${comment}"`,
+                                    complaintId: docId
+                                });
+                            }
+
+                            showToast("Comment added to complaint history.", "success");
+                        } catch (err) {
+                            showToast("Failed to add comment: " + err.message, "error");
+                        }
+                    }
+                });
+            });
+
+            // 3. REJECT ACTION (Reason is required; empty blocked)
+            document.querySelectorAll(".action-reject-btn").forEach((btn) => {
+                btn.addEventListener("click", async () => {
+                    const docId = btn.getAttribute("data-docid");
+                    const c = allComplaints.find((item) => item.firestoreId === docId);
+
+                    const modal = await showModal({
+                        title: `Reject Grievance: ${c ? c.id : ""}`,
+                        bodyHtml: `
+                            <p style="font-size:0.9rem; color:#dc2626; margin-bottom:12px;">
+                                ⚠️ Rejecting a complaint closes the grievance. A clear, specific justification is mandatory.
+                            </p>
+                            <div class="form-group">
+                                <label for="rejectReason">Rejection Justification *</label>
+                                <textarea id="rejectReason" name="rejectReason" placeholder="State reason for rejection (e.g. invalid information, already rectified, out of scope)..." required></textarea>
+                            </div>
+                        `,
+                        confirmText: "Confirm Rejection",
+                        confirmClass: "btn-danger"
+                    });
+
+                    if (modal.confirmed) {
+                        const reason = modal.data?.rejectReason?.trim();
+                        if (!reason) {
+                            showToast("Rejection reason is required. Complaint was NOT rejected.", "error");
+                            return;
+                        }
+
+                        try {
+                            const nowIso = new Date().toISOString();
+                            const historyEntry = {
+                                action: "Rejected",
+                                byRole: myRole,
+                                comment: reason,
+                                timestamp: nowIso
+                            };
+
+                            await updateDoc(doc(db, "complaints", docId), {
+                                status: "Rejected",
+                                history: arrayUnion(historyEntry),
+                                updatedAt: serverTimestamp()
+                            });
+
+                            if (c && c.studentUid) {
+                                await createNotification(db, {
+                                    toUid: c.studentUid,
+                                    title: `Complaint Rejected (${c.id})`,
+                                    message: `Reason: ${reason}`,
+                                    complaintId: docId
+                                });
+                            }
+
+                            showToast("Complaint rejected.", "info");
+                        } catch (err) {
+                            showToast("Failed to reject: " + err.message, "error");
+                        }
+                    }
+                });
+            });
+
+            // 4. FORWARD ACTION (Forward to authority dropdown + required comment)
+            document.querySelectorAll(".action-forward-btn").forEach((btn) => {
+                btn.addEventListener("click", async () => {
+                    const docId = btn.getAttribute("data-docid");
+                    const c = allComplaints.find((item) => item.firestoreId === docId);
+
+                    // Build options excluding self
+                    const optionsHtml = AUTHORITY_ROLES
+                        .filter((r) => r !== myRole)
+                        .map((r) => `<option value="${r}">${r}</option>`)
+                        .join("");
+
+                    const modal = await showModal({
+                        title: `Forward Grievance: ${c ? c.id : ""}`,
+                        bodyHtml: `
+                            <p style="font-size:0.9rem; color:#475569; margin-bottom:12px;">
+                                Forward this grievance to another college official. Once forwarded, this complaint will transition to their queue.
+                            </p>
+                            <div class="form-group">
+                                <label for="targetAuthority">Select Destination Authority *</label>
+                                <select id="targetAuthority" name="targetAuthority" required>
+                                    <option value="">-- Choose Authority --</option>
+                                    ${optionsHtml}
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="forwardComment">Forwarding Instructions / Comment *</label>
+                                <textarea id="forwardComment" name="forwardComment" placeholder="Explain why this grievance is being transferred to the selected authority..." required></textarea>
+                            </div>
+                        `,
+                        confirmText: "Forward Complaint",
+                        confirmClass: "btn-primary"
+                    });
+
+                    if (modal.confirmed) {
+                        const targetAuth = modal.data?.targetAuthority;
+                        const comment = modal.data?.forwardComment?.trim();
+
+                        if (!targetAuth) {
+                            showToast("Please select a target authority.", "error");
+                            return;
+                        }
+
+                        if (!comment) {
+                            showToast("Forwarding comment is required.", "error");
+                            return;
+                        }
+
+                        try {
+                            const nowIso = new Date().toISOString();
+                            const historyEntry = {
+                                action: "Forwarded",
+                                byRole: myRole,
+                                comment: `Forwarded to ${targetAuth}: ${comment}`,
+                                timestamp: nowIso
+                            };
+
+                            await updateDoc(doc(db, "complaints", docId), {
+                                status: "Forwarded",
+                                currentAssignee: targetAuth,
+                                history: arrayUnion(historyEntry),
+                                updatedAt: serverTimestamp()
+                            });
+
+                            // Notify the new authority
+                            await createNotification(db, {
+                                toRole: targetAuth,
+                                title: `Complaint Forwarded (${c.id})`,
+                                message: `${myRole} forwarded grievance ${c.id} to you: "${comment}"`,
+                                complaintId: docId
+                            });
+
+                            // Notify the student
+                            if (c && c.studentUid) {
+                                await createNotification(db, {
+                                    toUid: c.studentUid,
+                                    title: `Complaint Forwarded (${c.id})`,
+                                    message: `Your grievance has been forwarded to ${targetAuth} for resolution.`,
+                                    complaintId: docId
+                                });
+                            }
+
+                            showToast(`Complaint forwarded to ${targetAuth} successfully.`, "success");
+                        } catch (err) {
+                            showToast("Failed to forward: " + err.message, "error");
+                        }
+                    }
+                });
+            });
+
+            // 5. RESOLVE ACTION
+            document.querySelectorAll(".action-resolve-btn").forEach((btn) => {
+                btn.addEventListener("click", async () => {
+                    const docId = btn.getAttribute("data-docid");
+                    const c = allComplaints.find((item) => item.firestoreId === docId);
+
+                    const modal = await showModal({
+                        title: `Resolve Grievance: ${c ? c.id : ""}`,
+                        bodyHtml: `
+                            <p style="font-size:0.95rem; color:#166534; margin-bottom:12px;">
+                                Confirm that corrective action has been completed for this grievance.
+                            </p>
+                            <div class="form-group">
+                                <label for="resolveComment">Resolution Summary *</label>
+                                <textarea id="resolveComment" name="resolveComment" placeholder="Describe actions taken to resolve the student's problem..." required></textarea>
+                            </div>
+                        `,
+                        confirmText: "Mark as Resolved",
+                        confirmClass: "btn-success"
+                    });
+
+                    if (modal.confirmed) {
+                        const comment = modal.data?.resolveComment?.trim() || "Grievance resolved successfully.";
+
+                        try {
+                            const nowIso = new Date().toISOString();
+                            const historyEntry = {
+                                action: "Resolved",
+                                byRole: myRole,
+                                comment: comment,
+                                timestamp: nowIso
+                            };
+
+                            await updateDoc(doc(db, "complaints", docId), {
+                                status: "Resolved",
+                                history: arrayUnion(historyEntry),
+                                updatedAt: serverTimestamp()
+                            });
+
+                            if (c && c.studentUid) {
+                                await createNotification(db, {
+                                    toUid: c.studentUid,
+                                    title: `Complaint Resolved (${c.id})`,
+                                    message: `Your grievance has been resolved by ${myRole}. Please review and submit your feedback.`,
+                                    complaintId: docId
+                                });
+                            }
+
+                            showToast("Complaint marked as Resolved!", "success");
+                        } catch (err) {
+                            showToast("Failed to resolve: " + err.message, "error");
+                        }
+                    }
+                });
+            });
+        }
+    </script>
+</body>
+</html>

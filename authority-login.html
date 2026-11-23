@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authority Login - Smart College Complaint System | OCT</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header class="app-header">
+        <div class="header-container">
+            <div class="brand">
+                <div>
+                    <span class="brand-logo-text">Oriental College of Technology</span>
+                    <span class="brand-subtitle">Smart College Complaint Management System</span>
+                </div>
+            </div>
+            <div class="nav-actions">
+                <a href="index.html" class="btn btn-outline" style="color:white; border-color: rgba(255,255,255,0.4);">
+                    👨‍🎓 Student Portal
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="auth-wrapper">
+        <div class="login-box">
+            <h1>College Authority Portal</h1>
+            <h2>Authorized Personnel Sign In</h2>
+            <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:18px;">
+                Roles (TG, Warden, HOD, Dean, Director, Admin) are securely verified against your official college profile.
+            </p>
+
+            <form id="authorityLoginForm" novalidate>
+                <div class="form-group">
+                    <label for="email">Authority Official Email</label>
+                    <input 
+                        type="email" 
+                        id="email" 
+                        placeholder="e.g. tg@oct.ac.in, hod@oct.ac.in" 
+                        required 
+                        autocomplete="email"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        placeholder="Enter your authority password" 
+                        required 
+                        autocomplete="current-password"
+                    >
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; margin: 10px 0 16px 0;">
+                    <label class="form-checkbox" style="margin:0;">
+                        <input type="checkbox" id="rememberMe" checked>
+                        Remember Me
+                    </label>
+                    <a href="#" id="forgotPasswordLink" style="font-size:0.85rem; color:var(--primary); text-decoration:none;">
+                        Forgot Password?
+                    </a>
+                </div>
+
+                <button type="submit" id="loginBtn" class="btn btn-primary btn-full">
+                    Authorize &amp; Sign In
+                </button>
+
+                <p id="errorMessage" style="color: var(--danger); margin-top: 14px; font-size: 0.9rem; min-height: 20px;"></p>
+            </form>
+
+            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color); font-size: 0.85rem; color: var(--text-muted);">
+                <p>Are you a student? 
+                    <a href="index.html" style="color: var(--primary); font-weight: 600; text-decoration: none;">
+                        Go to Student Login
+                    </a>
+                </p>
+                <p style="margin-top: 10px;">
+                    First-time setup? <a href="seed.html" style="color:var(--secondary); text-decoration:underline;">Provision default authorities</a>
+                </p>
+            </div>
+        </div>
+    </main>
+
+    <script type="module">
+        import { loginUser, requestPasswordReset, requireAuth } from "./js/auth.js";
+        import { showToast, showModal } from "./js/utils.js";
+
+        // Route guard: Redirect if already authenticated
+        await requireAuth({ redirectIfAuthenticated: true });
+
+        const form = document.getElementById("authorityLoginForm");
+        const emailInput = document.getElementById("email");
+        const passwordInput = document.getElementById("password");
+        const rememberMeInput = document.getElementById("rememberMe");
+        const loginBtn = document.getElementById("loginBtn");
+        const errorMsg = document.getElementById("errorMessage");
+        const forgotPasswordLink = document.getElementById("forgotPasswordLink");
+
+        // UI Preference: Load saved email if checked previously
+        const savedEmail = localStorage.getItem("oct_remembered_authority_email");
+        if (savedEmail) {
+            emailInput.value = savedEmail;
+            rememberMeInput.checked = true;
+        }
+
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            errorMsg.textContent = "";
+
+            const email = emailInput.value.trim();
+            const password = passwordInput.value;
+            const rememberMe = rememberMeInput.checked;
+
+            if (!email || !password) {
+                errorMsg.textContent = "Please enter your authority email and password.";
+                return;
+            }
+
+            loginBtn.disabled = true;
+            loginBtn.textContent = "Verifying Authority Role...";
+
+            try {
+                const { profile } = await loginUser(email, password, rememberMe);
+
+                // Remember Me preference
+                if (rememberMe) {
+                    localStorage.setItem("oct_remembered_authority_email", email);
+                } else {
+                    localStorage.removeItem("oct_remembered_authority_email");
+                }
+
+                // Verify that the user has an authority role
+                const authorityRole = profile ? profile.role : null;
+                const validRoles = ["TG", "Warden", "HOD", "Dean", "Director", "Admin"];
+
+                if (!authorityRole || !validRoles.includes(authorityRole)) {
+                    errorMsg.textContent = "Access denied: This account is registered as a student, not a college authority.";
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = "Authorize & Sign In";
+                    return;
+                }
+
+                showToast(`Authenticated as ${authorityRole} (${profile.name || email})`, "success");
+
+                // Route appropriately: Admin goes to admin-dashboard, others to authority-dashboard
+                setTimeout(() => {
+                    if (authorityRole === "Admin") {
+                        window.location.replace("admin-dashboard.html");
+                    } else {
+                        window.location.replace("authority-dashboard.html");
+                    }
+                }, 500);
+
+            } catch (err) {
+                console.error("Authority login error:", err);
+                let message = "Invalid authority email or password.";
+                if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password" || err.code === "auth/user-not-found") {
+                    message = "Invalid email or password. Please verify your credentials.";
+                } else if (err.code === "auth/too-many-requests") {
+                    message = "Too many failed attempts. Please try again later.";
+                } else if (err.message) {
+                    message = err.message;
+                }
+                errorMsg.textContent = message;
+                loginBtn.disabled = false;
+                loginBtn.textContent = "Authorize & Sign In";
+            }
+        });
+
+        // Forgot password flow
+        forgotPasswordLink.addEventListener("click", async (e) => {
+            e.preventDefault();
+            const result = await showModal({
+                title: "Reset Authority Password",
+                bodyHtml: `
+                    <p style="margin-bottom:12px; font-size:0.9rem; color:#475569;">
+                        Enter your official college authority email address. A password reset link will be dispatched.
+                    </p>
+                    <div class="form-group">
+                        <label for="resetEmailInput">Authority Email</label>
+                        <input type="email" id="resetEmailInput" value="${emailInput.value.trim()}" placeholder="authority@oct.ac.in" required>
+                    </div>
+                `,
+                confirmText: "Send Reset Link",
+                confirmClass: "btn-primary"
+            });
+
+            if (result.confirmed && result.data && result.data.resetEmailInput) {
+                try {
+                    await requestPasswordReset(result.data.resetEmailInput);
+                    showToast("Password reset link sent! Please check your official email.", "success");
+                } catch (resetErr) {
+                    showToast(resetErr.message || "Failed to send reset link.", "error");
+                }
+            }
+        });
+    </script>
+</body>
+</html>

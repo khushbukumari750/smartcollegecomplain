@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Dashboard - Smart College Complaint System | OCT</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header class="app-header">
+        <div class="header-container">
+            <div class="brand">
+                <div>
+                    <span class="brand-logo-text">Oriental College of Technology</span>
+                    <span class="brand-subtitle">Smart College Complaint Management System</span>
+                </div>
+            </div>
+            <div class="nav-actions">
+                <span class="user-badge" id="studentHeaderBadge">👨‍🎓 Loading...</span>
+                <a href="notifications.html" class="btn btn-outline" style="color:white; border-color: rgba(255,255,255,0.4); position:relative;">
+                    🔔 Notifications
+                    <span id="unreadCountBadge" style="display:none; background:#ef4444; color:white; border-radius:50%; padding:2px 6px; font-size:0.75rem; margin-left:4px;">0</span>
+                </a>
+                <button id="logoutBtn" class="btn btn-danger btn-sm">
+                    Logout
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="dashboard-container">
+        <!-- Top Box -->
+        <div class="top-box">
+            <div class="top-box-header">
+                <div>
+                    <h1 style="color:var(--primary-dark); font-size:1.6rem;">Student Dashboard</h1>
+                    <p style="color:var(--text-muted); font-size:0.95rem;">
+                        Welcome back, <strong id="studentGreetingName">Student</strong> (<span id="studentDept">—</span>)
+                    </p>
+                </div>
+                <div class="top-box-actions">
+                    <a href="complaint.html" class="btn btn-primary">
+                        + New Complaint
+                    </a>
+                </div>
+            </div>
+
+            <!-- Search and Filter -->
+            <div class="search-filter-bar">
+                <input 
+                    type="text" 
+                    id="searchInput" 
+                    placeholder="Search by Complaint ID, Category, Location, or Keyword..."
+                    aria-label="Search Complaints"
+                >
+                <select id="statusFilter" aria-label="Filter by Status">
+                    <option value="ALL">All Statuses</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Accepted">Accepted</option>
+                    <option value="Forwarded">Forwarded</option>
+                    <option value="Escalated">Escalated</option>
+                    <option value="Resolved">Resolved</option>
+                    <option value="Rejected">Rejected</option>
+                    <option value="Reopened">Reopened</option>
+                </select>
+                <select id="priorityFilter" aria-label="Filter by Priority">
+                    <option value="ALL">All Priorities</option>
+                    <option value="High">🔴 High</option>
+                    <option value="Medium">🟡 Medium</option>
+                    <option value="Low">🟢 Low</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Complaints List Container -->
+        <h2 style="font-size:1.25rem; color:var(--primary-dark); margin-bottom:14px;">My Grievances</h2>
+        <div id="complaintsList">
+            <div class="spinner-box">
+                <div class="spinner"></div>
+                <p>Loading your complaints in real time...</p>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { 
+            db, 
+            collection, 
+            query, 
+            where, 
+            onSnapshot, 
+            doc, 
+            updateDoc, 
+            serverTimestamp, 
+            arrayUnion 
+        } from "./js/firebase-config.js";
+
+        import { requireAuth, logoutUser } from "./js/auth.js";
+        import { 
+            escapeHTML, 
+            formatDateTime, 
+            getStatusBadgeClass, 
+            getPriorityBadgeClass, 
+            createNotification, 
+            showToast, 
+            showModal 
+        } from "./js/utils.js";
+
+        // Route Guard: Student only
+        const authData = (await requireAuth({ allowedRoles: ["student"] })) || {};
+        const { user = {}, profile = {} } = authData;
+
+        // UI Header personalization
+        const studentName = (profile && profile.name) || (user && user.email) || "Student";
+        const studentDept = (profile && profile.department) || "Student";
+        document.getElementById("studentHeaderBadge").textContent = `👨‍🎓 ${studentName}`;
+        document.getElementById("studentGreetingName").textContent = studentName;
+        document.getElementById("studentDept").textContent = studentDept;
+
+        // Realtime Unread Notifications counter
+        const unreadBadge = document.getElementById("unreadCountBadge");
+        const notifQuery = query(
+            collection(db, "notifications"),
+            where("toUid", "==", user.uid),
+            where("read", "==", false)
+        );
+        onSnapshot(notifQuery, (snapshot) => {
+            const count = snapshot.size;
+            if (count > 0) {
+                unreadBadge.textContent = String(count);
+                unreadBadge.style.display = "inline-block";
+            } else {
+                unreadBadge.style.display = "none";
+            }
+        });
+
+        // Logout
+        document.getElementById("logoutBtn").addEventListener("click", async () => {
+            await logoutUser();
+            showToast("Logged out successfully.", "info");
+            setTimeout(() => window.location.replace("index.html"), 400);
+        });
+
+        // Live Complaints Subscription
+        let allMyComplaints = [];
+        const complaintsContainer = document.getElementById("complaintsList");
+        const searchInput = document.getElementById("searchInput");
+        const statusFilter = document.getElementById("statusFilter");
+        const priorityFilter = document.getElementById("priorityFilter");
+
+        const q = query(
+            collection(db, "complaints"),
+            where("studentUid", "==", user.uid)
+        );
+
+        onSnapshot(q, (snapshot) => {
+            allMyComplaints = [];
+            snapshot.forEach((docSnap) => {
+                allMyComplaints.push({
+                    firestoreId: docSnap.id,
+                    ...docSnap.data()
+                });
+            });
+
+            // Sort newest first
+            allMyComplaints.sort((a, b) => {
+                const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : (new Date(a.createdAt || 0)).getTime();
+                const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : (new Date(b.createdAt || 0)).getTime();
+                return timeB - timeA;
+            });
+
+            renderComplaints();
+        }, (err) => {
+            console.error("Firestore onSnapshot error:", err);
+            complaintsContainer.innerHTML = `
+                <div class="empty-state">
+                    <p style="color:var(--danger);">Error syncing complaints: ${escapeHTML(err.message)}</p>
+                </div>
+            `;
+        });
+
+        // Filter & Search Trigger
+        searchInput.addEventListener("input", renderComplaints);
+        statusFilter.addEventListener("change", renderComplaints);
+        priorityFilter.addEventListener("change", renderComplaints);
+
+        function renderComplaints() {
+            const searchTerm = searchInput.value.trim().toLowerCase();
+            const selectedStatus = statusFilter.value;
+            const selectedPriority = priorityFilter.value;
+
+            const filtered = allMyComplaints.filter((c) => {
+                const matchesSearch = !searchTerm || [
+                    c.id,
+                    c.category,
+                    c.type,
+                    c.location,
+                    c.description,
+                    c.currentAssignee
+                ].some((val) => String(val || "").toLowerCase().includes(searchTerm));
+
+                const matchesStatus = selectedStatus === "ALL" || c.status === selectedStatus;
+                const matchesPriority = selectedPriority === "ALL" || c.priority === selectedPriority;
+
+                return matchesSearch && matchesStatus && matchesPriority;
+            });
+
+            if (filtered.length === 0) {
+                complaintsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <h3>No Complaints Found</h3>
+                        <p style="margin-top:6px;">
+                            ${allMyComplaints.length === 0 ? "You have not lodged any grievances yet." : "No grievances match your current search/filter criteria."}
+                        </p>
+                        ${allMyComplaints.length === 0 ? `<a href="complaint.html" class="btn btn-primary" style="margin-top:14px;">Submit a Complaint</a>` : ""}
+                    </div>
+                `;
+                return;
+            }
+
+            complaintsContainer.innerHTML = "";
+
+            filtered.forEach((c) => {
+                const card = document.createElement("div");
+                card.className = "complaint-card";
+
+                const statusClass = getStatusBadgeClass(c.status);
+                const priorityClass = getPriorityBadgeClass(c.priority);
+
+                // Build history timeline entries
+                const history = Array.isArray(c.history) ? c.history : [];
+                let timelineHtml = "";
+                if (history.length > 0) {
+                    timelineHtml = history.map((entry) => `
+                        <div class="timeline-entry">
+                            <div class="timeline-entry-header">
+                                <span>${escapeHTML(entry.action)} by <em>${escapeHTML(entry.byRole || "Authority")}</em></span>
+                                <span class="timeline-entry-time">${escapeHTML(formatDateTime(entry.timestamp))}</span>
+                            </div>
+                            ${entry.comment ? `<div class="timeline-entry-comment">${escapeHTML(entry.comment)}</div>` : ""}
+                        </div>
+                    `).join("");
+                } else {
+                    timelineHtml = `<p style="font-size:0.85rem; color:var(--text-muted);">No activity logged yet.</p>`;
+                }
+
+                // Proof rendering
+                let proofHtml = "";
+                if (c.proofUrl) {
+                    const isVideo = c.proofUrl.includes(".mp4") || c.proofUrl.includes(".webm") || c.proofUrl.includes("video");
+                    if (isVideo) {
+                        proofHtml = `
+                            <div class="proof-preview-box">
+                                <strong>Attached Proof:</strong><br>
+                                <video src="${escapeHTML(c.proofUrl)}" controls style="max-width:240px; max-height:160px; margin-top:6px; border-radius:4px;"></video>
+                            </div>
+                        `;
+                    } else {
+                        proofHtml = `
+                            <div class="proof-preview-box">
+                                <strong>Attached Proof:</strong><br>
+                                <a href="${escapeHTML(c.proofUrl)}" target="_blank" rel="noopener noreferrer">
+                                    <img src="${escapeHTML(c.proofUrl)}" alt="Complaint Proof" class="proof-img" style="margin-top:6px;">
+                                </a>
+                            </div>
+                        `;
+                    }
+                }
+
+                // Rating & Feedback section for Resolved complaints
+                let feedbackHtml = "";
+                if (c.status === "Resolved") {
+                    if (c.rating && c.rating > 0) {
+                        feedbackHtml = `
+                            <div class="feedback-box">
+                                <h4 style="color:var(--success-hover); font-size:0.95rem;">⭐ Your Resolution Rating</h4>
+                                <div style="font-size:1.3rem; margin: 4px 0;">
+                                    ${"⭐".repeat(c.rating)} (${c.rating}/5)
+                                </div>
+                                <p style="font-size:0.9rem; color:var(--text-main);">
+                                    <strong>Feedback:</strong> ${escapeHTML(c.feedback || "No additional comments provided.")}
+                                </p>
+                            </div>
+                        `;
+                    } else {
+                        feedbackHtml = `
+                            <div class="feedback-box" id="feedbackPrompt_${c.firestoreId}">
+                                <h4 style="color:var(--success-hover); font-size:0.95rem;">⭐ Rate This Resolution</h4>
+                                <p style="font-size:0.85rem; color:var(--text-muted);">How satisfied are you with the resolution of this grievance?</p>
+                                <div class="star-rating" data-docid="${c.firestoreId}">
+                                    <span data-star="1">★</span>
+                                    <span data-star="2">★</span>
+                                    <span data-star="3">★</span>
+                                    <span data-star="4">★</span>
+                                    <span data-star="5">★</span>
+                                </div>
+                                <div class="form-group" style="margin-top:8px;">
+                                    <textarea id="feedbackText_${c.firestoreId}" placeholder="Leave constructive feedback for the administration (optional)..." style="height:70px;"></textarea>
+                                </div>
+                                <button type="button" class="btn btn-success btn-sm submit-rating-btn" data-docid="${c.firestoreId}">
+                                    Submit Feedback
+                                </button>
+                            </div>
+                        `;
+                    }
+                }
+
+                // Reopen button for Resolved complaints
+                let reopenBtnHtml = "";
+                if (c.status === "Resolved") {
+                    reopenBtnHtml = `
+                        <button type="button" class="btn btn-outline btn-sm reopen-complaint-btn" data-docid="${c.firestoreId}" style="color:var(--danger); border-color:var(--danger);">
+                            🔄 Reopen Grievance
+                        </button>
+                    `;
+                }
+
+                card.innerHTML = `
+                    <div class="card-header">
+                        <span class="complaint-code">${escapeHTML(c.id || "Grievance")}</span>
+                        <div class="badges-row">
+                            <span class="priority ${priorityClass}">Priority: ${escapeHTML(c.priority || "Medium")}</span>
+                            <span class="badge ${statusClass}">${escapeHTML(c.status || "Pending")}</span>
+                        </div>
+                    </div>
+
+                    <div class="card-meta-grid">
+                        <div class="meta-item">
+                            <strong>Category:</strong> ${escapeHTML(c.category || "—")}
+                        </div>
+                        <div class="meta-item">
+                            <strong>Specific Type:</strong> ${escapeHTML(c.type || "—")}
+                        </div>
+                        <div class="meta-item">
+                            <strong>Location:</strong> ${escapeHTML(c.location || "—")}
+                        </div>
+                        <div class="meta-item">
+                            <strong>Current Handler:</strong> <span class="badge badge-accepted" style="font-size:0.8rem;">${escapeHTML(c.currentAssignee || "Unassigned")}</span>
+                        </div>
+                        <div class="meta-item">
+                            <strong>Submitted On:</strong> ${escapeHTML(formatDateTime(c.createdAt))}
+                        </div>
+                    </div>
+
+                    <div class="complaint-desc-box">
+                        <strong>Problem Description:</strong><br>
+                        ${escapeHTML(c.description || "No description provided.")}
+                    </div>
+
+                    ${proofHtml}
+
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px;">
+                        <button type="button" class="btn btn-outline btn-sm toggle-timeline-btn" data-target="timeline_${c.firestoreId}">
+                            📋 Show Timeline (${history.length})
+                        </button>
+                        ${reopenBtnHtml}
+                    </div>
+
+                    <div id="timeline_${c.firestoreId}" class="timeline-box" style="display:none;">
+                        <div class="timeline-title">Action &amp; Resolution Timeline</div>
+                        <div class="timeline-list">
+                            ${timelineHtml}
+                        </div>
+                    </div>
+
+                    ${feedbackHtml}
+                `;
+
+                complaintsContainer.appendChild(card);
+            });
+
+            attachCardEventListeners();
+        }
+
+        function attachCardEventListeners() {
+            // Toggle timeline
+            document.querySelectorAll(".toggle-timeline-btn").forEach((btn) => {
+                btn.addEventListener("click", () => {
+                    const targetId = btn.getAttribute("data-target");
+                    const box = document.getElementById(targetId);
+                    if (box) {
+                        const isHidden = box.style.display === "none";
+                        box.style.display = isHidden ? "block" : "none";
+                        btn.textContent = isHidden ? "Hide Timeline" : `📋 Show Timeline`;
+                    }
+                });
+            });
+
+            // Star Rating selection
+            document.querySelectorAll(".star-rating").forEach((starContainer) => {
+                const stars = starContainer.querySelectorAll("span");
+                let selectedRating = 0;
+
+                stars.forEach((star) => {
+                    star.addEventListener("click", () => {
+                        selectedRating = Number(star.getAttribute("data-star"));
+                        stars.forEach((s) => {
+                            const val = Number(s.getAttribute("data-star"));
+                            s.style.color = val <= selectedRating ? "#eab308" : "#cbd5e1";
+                        });
+                        starContainer.setAttribute("data-selected-rating", String(selectedRating));
+                    });
+                });
+            });
+
+            // Submit Rating button
+            document.querySelectorAll(".submit-rating-btn").forEach((btn) => {
+                btn.addEventListener("click", async () => {
+                    const docId = btn.getAttribute("data-docid");
+                    const container = document.getElementById(`feedbackPrompt_${docId}`);
+                    const starBox = container.querySelector(".star-rating");
+                    const rating = Number(starBox.getAttribute("data-selected-rating") || 0);
+                    const feedbackText = document.getElementById(`feedbackText_${docId}`).value.trim();
+
+                    if (!rating) {
+                        showToast("Please click a star to give a rating (1 to 5).", "error");
+                        return;
+                    }
+
+                    btn.disabled = true;
+                    btn.textContent = "Saving...";
+
+                    try {
+                        const complaintRef = doc(db, "complaints", docId);
+                        await updateDoc(complaintRef, {
+                            rating: rating,
+                            feedback: feedbackText,
+                            updatedAt: serverTimestamp()
+                        });
+                        showToast("Thank you for your feedback!", "success");
+                    } catch (err) {
+                        console.error("Error saving rating:", err);
+                        showToast("Failed to save feedback: " + err.message, "error");
+                        btn.disabled = false;
+                        btn.textContent = "Submit Feedback";
+                    }
+                });
+            });
+
+            // Reopen Grievance button (Accessible modal replaces native dialogs)
+            document.querySelectorAll(".reopen-complaint-btn").forEach((btn) => {
+                btn.addEventListener("click", async () => {
+                    const docId = btn.getAttribute("data-docid");
+                    const c = allMyComplaints.find((item) => item.firestoreId === docId);
+
+                    const modalResult = await showModal({
+                        title: `Reopen Grievance: ${c ? c.id : ""}`,
+                        bodyHtml: `
+                            <p style="font-size:0.9rem; color:#475569; margin-bottom:12px;">
+                                If your issue was not satisfactorily resolved, please explain why you are reopening this complaint.
+                            </p>
+                            <div class="form-group">
+                                <label for="reopenReason">Reason for Reopening *</label>
+                                <textarea id="reopenReason" name="reopenReason" placeholder="State specifically what remains unresolved..." required></textarea>
+                            </div>
+                        `,
+                        confirmText: "Reopen Grievance",
+                        confirmClass: "btn-danger"
+                    });
+
+                    if (modalResult.confirmed && modalResult.data && modalResult.data.reopenReason) {
+                        const reason = modalResult.data.reopenReason.trim();
+                        if (!reason) {
+                            showToast("A reason is required to reopen a complaint.", "error");
+                            return;
+                        }
+
+                        try {
+                            const complaintRef = doc(db, "complaints", docId);
+                            const nowIso = new Date().toISOString();
+                            const historyEntry = {
+                                action: "Reopened",
+                                byRole: "Student",
+                                comment: reason,
+                                timestamp: nowIso
+                            };
+
+                            await updateDoc(complaintRef, {
+                                status: "Reopened",
+                                history: arrayUnion(historyEntry),
+                                updatedAt: serverTimestamp()
+                            });
+
+                            // Notify the assigned authority
+                            if (c && c.currentAssignee) {
+                                await createNotification(db, {
+                                    toRole: c.currentAssignee,
+                                    title: `Complaint Reopened (${c.id})`,
+                                    message: `Student reopened ${c.id}: "${reason}".`,
+                                    complaintId: docId
+                                });
+                            }
+
+                            showToast("Complaint reopened successfully.", "success");
+                        } catch (reopenErr) {
+                            console.error("Error reopening complaint:", reopenErr);
+                            showToast("Failed to reopen complaint: " + reopenErr.message, "error");
+                        }
+                    }
+                });
+            });
+        }
+    </script>
+</body>
+</html>

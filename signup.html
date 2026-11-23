@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Registration - Smart College Complaint System | OCT</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header class="app-header">
+        <div class="header-container">
+            <div class="brand">
+                <div>
+                    <span class="brand-logo-text">Oriental College of Technology</span>
+                    <span class="brand-subtitle">Smart College Complaint Management System</span>
+                </div>
+            </div>
+            <div class="nav-actions">
+                <a href="index.html" class="btn btn-outline" style="color:white; border-color: rgba(255,255,255,0.4);">
+                    &larr; Back to Login
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="auth-wrapper">
+        <div class="login-box" style="max-width: 480px;">
+            <h1>Create Student Account</h1>
+            <h2>Register to submit grievances and track resolutions</h2>
+
+            <form id="signupForm" novalidate>
+                <div class="form-group">
+                    <label for="name">Full Name *</label>
+                    <input 
+                        type="text" 
+                        id="name" 
+                        name="name" 
+                        placeholder="e.g. Rahul Sharma" 
+                        required 
+                        autocomplete="name"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="email">College / Personal Email *</label>
+                    <input 
+                        type="email" 
+                        id="email" 
+                        name="email" 
+                        placeholder="e.g. rahul.sharma@oct.ac.in" 
+                        required 
+                        autocomplete="email"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="department">Department *</label>
+                    <select id="department" name="department" required>
+                        <option value="">Select Department</option>
+                        <option value="Computer Science & Engineering">Computer Science & Engineering</option>
+                        <option value="Information Technology">Information Technology</option>
+                        <option value="Electronics & Communication">Electronics & Communication</option>
+                        <option value="Electrical Engineering">Electrical Engineering</option>
+                        <option value="Mechanical Engineering">Mechanical Engineering</option>
+                        <option value="Civil Engineering">Civil Engineering</option>
+                        <option value="Basic Sciences & Humanities">Basic Sciences & Humanities</option>
+                        <option value="MBA / Management">MBA / Management</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="phone">Mobile Number</label>
+                    <input 
+                        type="tel" 
+                        id="phone" 
+                        name="phone" 
+                        placeholder="10-digit mobile number" 
+                        maxlength="10" 
+                        pattern="[0-9]{10}"
+                        autocomplete="tel"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password (Minimum 8 Characters) *</label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password" 
+                        placeholder="Create a strong password" 
+                        minlength="8" 
+                        required 
+                        autocomplete="new-password"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="confirmPassword">Confirm Password *</label>
+                    <input 
+                        type="password" 
+                        id="confirmPassword" 
+                        name="confirmPassword" 
+                        placeholder="Re-enter your password" 
+                        minlength="8" 
+                        required 
+                        autocomplete="new-password"
+                    >
+                </div>
+
+                <button type="submit" id="submitBtn" class="btn btn-primary btn-full" style="margin-top: 10px;">
+                    Register Account
+                </button>
+
+                <p id="message" style="margin-top: 14px; font-size: 0.9rem; min-height: 20px;"></p>
+            </form>
+
+            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color); font-size: 0.9rem;">
+                <p>Already have an account? 
+                    <a href="index.html" style="color: var(--primary); font-weight: 600; text-decoration: none;">
+                        Sign In
+                    </a>
+                </p>
+            </div>
+        </div>
+    </main>
+
+    <script type="module">
+        import { registerStudent, requireAuth } from "./js/auth.js";
+        import { showToast } from "./js/utils.js";
+
+        // Route guard: Redirect if already authenticated
+        await requireAuth({ redirectIfAuthenticated: true });
+
+        const form = document.getElementById("signupForm");
+        const submitBtn = document.getElementById("submitBtn");
+        const message = document.getElementById("message");
+
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            message.textContent = "";
+            message.style.color = "var(--danger)";
+
+            const name = document.getElementById("name").value.trim();
+            const email = document.getElementById("email").value.trim();
+            const department = document.getElementById("department").value;
+            const phone = document.getElementById("phone").value.trim();
+            const password = document.getElementById("password").value;
+            const confirmPassword = document.getElementById("confirmPassword").value;
+
+            // Client-side validations
+            if (!name || !email || !department || !password) {
+                message.textContent = "Please fill in all required fields marked with *.";
+                return;
+            }
+
+            if (password.length < 8) {
+                message.textContent = "Password must be at least 8 characters long.";
+                return;
+            }
+
+            if (password !== confirmPassword) {
+                message.textContent = "Passwords do not match. Please re-enter.";
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Creating Account...";
+
+            try {
+                await registerStudent({ name, email, department, phone, password });
+
+                message.style.color = "var(--success)";
+                message.textContent = "Account created successfully! Redirecting to dashboard...";
+                showToast("Welcome! Registration completed.", "success");
+
+                setTimeout(() => {
+                    window.location.replace("dashboard.html");
+                }, 1000);
+
+            } catch (err) {
+                console.error("Signup error:", err);
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Register Account";
+                message.style.color = "var(--danger)";
+
+                if (err.code === "auth/email-already-in-use") {
+                    message.textContent = "An account with this email already exists. Please log in.";
+                } else if (err.code === "auth/invalid-email") {
+                    message.textContent = "Please enter a valid email address.";
+                } else if (err.code === "auth/weak-password") {
+                    message.textContent = "Password is too weak. Please use letters and numbers.";
+                } else {
+                    message.textContent = err.message || "Failed to create account. Please try again.";
+                }
+            }
+        });
+    </script>
+</body>
+</html>

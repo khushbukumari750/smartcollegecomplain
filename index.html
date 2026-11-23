@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Login - Smart College Complaint System | OCT</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header class="app-header">
+        <div class="header-container">
+            <div class="brand">
+                <div>
+                    <span class="brand-logo-text">Oriental College of Technology</span>
+                    <span class="brand-subtitle">Smart College Complaint Management System</span>
+                </div>
+            </div>
+            <div class="nav-actions">
+                <a href="authority-login.html" class="btn btn-outline" style="color:white; border-color: rgba(255,255,255,0.4);">
+                    🔐 Authority Portal
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <main class="auth-wrapper">
+        <div class="login-box">
+            <h1>Student Portal</h1>
+            <h2>Sign in to file and track grievances</h2>
+
+            <form id="studentLoginForm" novalidate>
+                <div class="form-group">
+                    <label for="email">Student Email Address</label>
+                    <input 
+                        type="email" 
+                        id="email" 
+                        placeholder="e.g. student@oct.ac.in" 
+                        required 
+                        autocomplete="email"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        placeholder="Enter your password" 
+                        required 
+                        autocomplete="current-password"
+                    >
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; margin: 10px 0 16px 0;">
+                    <label class="form-checkbox" style="margin:0;">
+                        <input type="checkbox" id="rememberMe" checked>
+                        Remember Me
+                    </label>
+                    <a href="#" id="forgotPasswordLink" style="font-size:0.85rem; color:var(--primary); text-decoration:none;">
+                        Forgot Password?
+                    </a>
+                </div>
+
+                <button type="submit" id="loginBtn" class="btn btn-primary btn-full">
+                    Sign In
+                </button>
+
+                <p id="errorMessage" style="color: var(--danger); margin-top: 14px; font-size: 0.9rem; min-height: 20px;"></p>
+            </form>
+
+            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-color); font-size: 0.9rem;">
+                <p>New Student? 
+                    <a href="signup.html" style="color: var(--primary); font-weight: 600; text-decoration: none;">
+                        Create Account
+                    </a>
+                </p>
+                <p style="margin-top: 8px;">College Official or Faculty? 
+                    <a href="authority-login.html" style="color: var(--primary-dark); font-weight: 600; text-decoration: none;">
+                        Authority Login
+                    </a>
+                </p>
+            </div>
+        </div>
+    </main>
+
+    <script type="module">
+        import { loginUser, requestPasswordReset, requireAuth } from "./js/auth.js";
+        import { showToast, showModal } from "./js/utils.js";
+
+        // Route guard: Redirect if already authenticated
+        await requireAuth({ redirectIfAuthenticated: true });
+
+        const form = document.getElementById("studentLoginForm");
+        const emailInput = document.getElementById("email");
+        const passwordInput = document.getElementById("password");
+        const rememberMeInput = document.getElementById("rememberMe");
+        const loginBtn = document.getElementById("loginBtn");
+        const errorMsg = document.getElementById("errorMessage");
+        const forgotPasswordLink = document.getElementById("forgotPasswordLink");
+
+        // Restore remembered email if available in localStorage (UI preference only)
+        const savedEmail = localStorage.getItem("oct_remembered_student_email");
+        if (savedEmail) {
+            emailInput.value = savedEmail;
+            rememberMeInput.checked = true;
+        }
+
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            errorMsg.textContent = "";
+
+            const email = emailInput.value.trim();
+            const password = passwordInput.value;
+            const rememberMe = rememberMeInput.checked;
+
+            if (!email || !password) {
+                errorMsg.textContent = "Please enter both email and password.";
+                return;
+            }
+
+            loginBtn.disabled = true;
+            loginBtn.textContent = "Signing In...";
+
+            try {
+                const { profile } = await loginUser(email, password, rememberMe);
+
+                // Save or clear email preference
+                if (rememberMe) {
+                    localStorage.setItem("oct_remembered_student_email", email);
+                } else {
+                    localStorage.removeItem("oct_remembered_student_email");
+                }
+
+                // Verify student role
+                if (profile && profile.role !== "student") {
+                    showToast("Redirecting to your authorized authority dashboard...", "info");
+                    setTimeout(() => {
+                        window.location.replace(profile.role === "Admin" ? "admin-dashboard.html" : "authority-dashboard.html");
+                    }, 500);
+                    return;
+                }
+
+                showToast("Login successful!", "success");
+                setTimeout(() => {
+                    window.location.replace("dashboard.html");
+                }, 400);
+
+            } catch (err) {
+                console.error("Login error:", err);
+                let message = "Invalid email or password.";
+                if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password" || err.code === "auth/user-not-found") {
+                    message = "Invalid email or password. Please verify your credentials.";
+                } else if (err.code === "auth/too-many-requests") {
+                    message = "Too many failed attempts. Please try again later.";
+                } else if (err.message) {
+                    message = err.message;
+                }
+                errorMsg.textContent = message;
+                loginBtn.disabled = false;
+                loginBtn.textContent = "Sign In";
+            }
+        });
+
+        // Password Reset Flow
+        forgotPasswordLink.addEventListener("click", async (e) => {
+            e.preventDefault();
+            const result = await showModal({
+                title: "Reset Password",
+                bodyHtml: `
+                    <p style="margin-bottom:12px; font-size:0.9rem; color:#475569;">
+                        Enter your registered student email address. A password reset link will be sent to your inbox.
+                    </p>
+                    <div class="form-group">
+                        <label for="resetEmailInput">Registered Email</label>
+                        <input type="email" id="resetEmailInput" value="${emailInput.value.trim()}" placeholder="student@oct.ac.in" required>
+                    </div>
+                `,
+                confirmText: "Send Reset Link",
+                confirmClass: "btn-primary"
+            });
+
+            if (result.confirmed && result.data && result.data.resetEmailInput) {
+                try {
+                    await requestPasswordReset(result.data.resetEmailInput);
+                    showToast("Password reset link sent! Check your inbox.", "success");
+                } catch (resetErr) {
+                    showToast(resetErr.message || "Failed to send reset email.", "error");
+                }
+            }
+        });
+    </script>
+</body>
+</html>

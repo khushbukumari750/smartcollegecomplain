@@ -1,0 +1,26 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // Proof uploads for complaints:
+    // Files stored under complaints/{uid}/{fileName}
+    match /complaints/{userId}/{fileName} {
+      // Must be authenticated to upload
+      // Limit file size to 25MB (supports image & short video proof)
+      // Limit file types to images or standard video formats
+      allow write: if request.auth != null 
+                   && request.auth.uid == userId
+                   && request.resource.size < 25 * 1024 * 1024
+                   && (request.resource.contentType.matches('image/.*') 
+                       || request.resource.contentType.matches('video/.*'));
+
+      // Any authenticated user involved in grievance can read
+      allow read: if request.auth != null;
+    }
+
+    // Default deny for everything else
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

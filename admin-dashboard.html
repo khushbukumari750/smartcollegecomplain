@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Analytics &amp; Control Dashboard - OCT</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 14px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: white;
+            padding: 16px;
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+            border-left: 4px solid var(--primary);
+        }
+        .stat-card.pending { border-left-color: #eab308; }
+        .stat-card.accepted { border-left-color: #3b82f6; }
+        .stat-card.escalated { border-left-color: #f97316; }
+        .stat-card.resolved { border-left-color: #16a34a; }
+        .stat-card.rejected { border-left-color: #dc2626; }
+        .stat-num {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--primary-dark);
+            margin-top: 4px;
+        }
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .charts-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 16px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .circle-progress-card {
+            background: white;
+            padding: 16px;
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+        }
+        .circle-svg {
+            width: 100px;
+            height: 100px;
+            transform: rotate(-90deg);
+            margin: 0 auto;
+        }
+        .circle-bg {
+            fill: none;
+            stroke: #f1f5f9;
+            stroke-width: 8;
+        }
+        .circle-fill {
+            fill: none;
+            stroke-width: 8;
+            stroke-linecap: round;
+            stroke-dasharray: 251.2;
+            stroke-dashoffset: 251.2;
+            transition: stroke-dashoffset 0.6s ease;
+        }
+
+        .table-responsive {
+            overflow-x: auto;
+            background: white;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            margin-top: 14px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            text-align: left;
+        }
+        th {
+            background: var(--primary-dark);
+            color: white;
+            padding: 12px 14px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        td {
+            padding: 12px 14px;
+            border-bottom: 1px solid #f1f5f9;
+            vertical-align: middle;
+        }
+        tr:hover {
+            background: #f8fafc;
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: none;
+            padding: 10px 18px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            color: var(--text-muted);
+            border-bottom: 3px solid transparent;
+        }
+        .tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+    </style>
+</head>
+<body>
+
+    <header class="app-header">
+        <div class="header-container">
+            <div class="brand">
+                <div>
+                    <span class="brand-logo-text">Oriental College of Technology</span>
+                    <span class="brand-subtitle">Smart College Complaint Management System — Admin</span>
+                </div>
+            </div>
+            <div class="nav-actions">
+                <span class="user-badge">🛡️ System Administrator</span>
+                <a href="authority-dashboard.html" class="btn btn-outline" style="color:white; border-color:rgba(255,255,255,0.4);">
+                    🏛️ Authority Queue
+                </a>
+                <a href="notifications.html" class="btn btn-outline" style="color:white; border-color:rgba(255,255,255,0.4);">
+                    🔔 Notifications
+                </a>
+                <button id="logoutBtn" class="btn btn-danger btn-sm">Logout</button>
+            </div>
+        </div>
+    </header>
+
+    <div class="dashboard-container" style="max-width: 1200px;">
+        <!-- Welcome banner -->
+        <div class="top-box">
+            <h1 style="color:var(--primary-dark); font-size:1.6rem; margin-bottom:4px;">📊 System Analytics &amp; Master Control</h1>
+            <p style="color:var(--text-muted); font-size:0.95rem;">
+                Real-time oversight of college grievances, cross-department resolutions, authority performance, and student accounts.
+            </p>
+        </div>
+
+        <!-- Real-time Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total Grievances</div>
+                <div class="stat-num" id="statTotal">0</div>
+            </div>
+            <div class="stat-card pending">
+                <div class="stat-label">Pending</div>
+                <div class="stat-num" id="statPending" style="color:#ca8a04;">0</div>
+            </div>
+            <div class="stat-card accepted">
+                <div class="stat-label">In Progress / Accepted</div>
+                <div class="stat-num" id="statAccepted" style="color:#2563eb;">0</div>
+            </div>
+            <div class="stat-card escalated">
+                <div class="stat-label">Escalated</div>
+                <div class="stat-num" id="statEscalated" style="color:#ea580c;">0</div>
+            </div>
+            <div class="stat-card resolved">
+                <div class="stat-label">Resolved</div>
+                <div class="stat-num" id="statResolved" style="color:#16a34a;">0</div>
+            </div>
+            <div class="stat-card rejected">
+                <div class="stat-label">Rejected</div>
+                <div class="stat-num" id="statRejected" style="color:#dc2626;">0</div>
+            </div>
+        </div>
+
+        <!-- Progress Charts -->
+        <div class="panel-card">
+            <h2 style="font-size:1.15rem; color:var(--primary-dark); margin-bottom:12px;">Resolution &amp; Lifecycle Metrics</h2>
+            <div class="charts-row">
+                <div class="circle-progress-card">
+                    <svg class="circle-svg" viewBox="0 0 100 100">
+                        <circle class="circle-bg" cx="50" cy="50" r="40"></circle>
+                        <circle class="circle-fill" id="chartResolved" cx="50" cy="50" r="40" stroke="#16a34a"></circle>
+                    </svg>
+                    <div style="font-size:1.2rem; font-weight:700; margin-top:6px;" id="textResolvedPct">0%</div>
+                    <div style="font-size:0.75rem; color:var(--text-muted);">Resolved</div>
+                </div>
+
+                <div class="circle-progress-card">
+                    <svg class="circle-svg" viewBox="0 0 100 100">
+                        <circle class="circle-bg" cx="50" cy="50" r="40"></circle>
+                        <circle class="circle-fill" id="chartPending" cx="50" cy="50" r="40" stroke="#eab308"></circle>
+                    </svg>
+                    <div style="font-size:1.2rem; font-weight:700; margin-top:6px;" id="textPendingPct">0%</div>
+                    <div style="font-size:0.75rem; color:var(--text-muted);">Pending</div>
+                </div>
+
+                <div class="circle-progress-card">
+                    <svg class="circle-svg" viewBox="0 0 100 100">
+                        <circle class="circle-bg" cx="50" cy="50" r="40"></circle>
+                        <circle class="circle-fill" id="chartAccepted" cx="50" cy="50" r="40" stroke="#3b82f6"></circle>
+                    </svg>
+                    <div style="font-size:1.2rem; font-weight:700; margin-top:6px;" id="textAcceptedPct">0%</div>
+                    <div style="font-size:0.75rem; color:var(--text-muted);">In Progress</div>
+                </div>
+
+                <div class="circle-progress-card">
+                    <svg class="circle-svg" viewBox="0 0 100 100">
+                        <circle class="circle-bg" cx="50" cy="50" r="40"></circle>
+                        <circle class="circle-fill" id="chartRejected" cx="50" cy="50" r="40" stroke="#dc2626"></circle>
+                    </svg>
+                    <div style="font-size:1.2rem; font-weight:700; margin-top:6px;" id="textRejectedPct">0%</div>
+                    <div style="font-size:0.75rem; color:var(--text-muted);">Rejected</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Controls: All Grievances vs Users Directory -->
+        <div style="display:flex; border-bottom:1px solid #cbd5e1; margin-bottom:16px;">
+            <button class="tab-btn active" id="tabComplaintsBtn">All Grievances (<span id="allComplaintsCount">0</span>)</button>
+            <button class="tab-btn" id="tabUsersBtn">Users &amp; Authorities Directory (<span id="usersCount">0</span>)</button>
+        </div>
+
+        <!-- TAB 1: ALL COMPLAINTS TABLE -->
+        <div id="tabComplaints">
+            <div class="search-filter-bar">
+                <input 
+                    type="text" 
+                    id="adminSearchInput" 
+                    placeholder="Search complaint code, student, category, location, assignee..."
+                >
+                <select id="adminStatusFilter">
+                    <option value="ALL">All Statuses</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Accepted">Accepted</option>
+                    <option value="Forwarded">Forwarded</option>
+                    <option value="Escalated">Escalated</option>
+                    <option value="Resolved">Resolved</option>
+                    <option value="Rejected">Rejected</option>
+                    <option value="Reopened">Reopened</option>
+                </select>
+                <select id="adminCategoryFilter">
+                    <option value="ALL">All Categories</option>
+                    <option value="Hostel">Hostel</option>
+                    <option value="Classroom">Classroom</option>
+                    <option value="Faculty">Faculty</option>
+                    <option value="Lab">Lab</option>
+                    <option value="Academic">Academic</option>
+                    <option value="Infrastructure">Infrastructure</option>
+                    <option value="Safety">Safety</option>
+                    <option value="Library">Library</option>
+                    <option value="WiFi">WiFi</option>
+                    <option value="Canteen">Canteen</option>
+                    <option value="Transport">Transport</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Complaint ID</th>
+                            <th>Student</th>
+                            <th>Category</th>
+                            <th>Priority</th>
+                            <th>Status</th>
+                            <th>Assigned To</th>
+                            <th>Created At</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminComplaintsTableBody">
+                        <tr>
+                            <td colspan="8" style="text-align:center; padding:30px;">Loading grievances...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB 2: USERS DIRECTORY -->
+        <div id="tabUsers" style="display:none;">
+            <div class="search-filter-bar">
+                <input 
+                    type="text" 
+                    id="userSearchInput" 
+                    placeholder="Search by user name, email, department, role..."
+                >
+            </div>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Department</th>
+                            <th>Phone</th>
+                            <th>UID</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminUsersTableBody">
+                        <tr>
+                            <td colspan="6" style="text-align:center; padding:30px;">Loading users directory...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { 
+            db, 
+            collection, 
+            onSnapshot, 
+            getDocs, 
+            doc, 
+            updateDoc, 
+            serverTimestamp, 
+            arrayUnion 
+        } from "./js/firebase-config.js";
+
+        import { requireAuth, logoutUser } from "./js/auth.js";
+        import { 
+            escapeHTML, 
+            formatDateTime, 
+            getStatusBadgeClass, 
+            getPriorityBadgeClass, 
+            createNotification, 
+            showToast, 
+            showModal, 
+            AUTHORITY_ROLES 
+        } from "./js/utils.js";
+
+        // Route Guard: Admin role only!
+        const authData = (await requireAuth({ allowedRoles: ["Admin"] })) || {};
+        const { user = {}, profile = {} } = authData;
+
+        // Logout
+        document.getElementById("logoutBtn").addEventListener("click", async () => {
+            await logoutUser();
+            showToast("Admin logged out.", "info");
+            setTimeout(() => window.location.replace("authority-login.html"), 400);
+        });
+
+        // Tab Switching
+        const tabComplaintsBtn = document.getElementById("tabComplaintsBtn");
+        const tabUsersBtn = document.getElementById("tabUsersBtn");
+        const tabComplaints = document.getElementById("tabComplaints");
+        const tabUsers = document.getElementById("tabUsers");
+
+        tabComplaintsBtn.addEventListener("click", () => {
+            tabComplaintsBtn.classList.add("active");
+            tabUsersBtn.classList.remove("active");
+            tabComplaints.style.display = "block";
+            tabUsers.style.display = "none";
+        });
+
+        tabUsersBtn.addEventListener("click", () => {
+            tabUsersBtn.classList.add("active");
+            tabComplaintsBtn.classList.remove("active");
+            tabComplaints.style.display = "none";
+            tabUsers.style.display = "block";
+            loadUsersDirectory();
+        });
+
+        // Live Complaints Subscription
+        let complaintsList = [];
+        const tableBody = document.getElementById("adminComplaintsTableBody");
+        const searchInput = document.getElementById("adminSearchInput");
+        const statusFilter = document.getElementById("adminStatusFilter");
+        const categoryFilter = document.getElementById("adminCategoryFilter");
+
+        onSnapshot(collection(db, "complaints"), (snapshot) => {
+            complaintsList = [];
+            snapshot.forEach((d) => {
+                complaintsList.push({
+                    firestoreId: d.id,
+                    ...d.data()
+                });
+            });
+
+            // Update Statistics & Charts
+            updateMetrics(complaintsList);
+            renderComplaintsTable();
+        }, (err) => {
+            console.error("Admin complaints error:", err);
+            tableBody.innerHTML = `<tr><td colspan="8" style="color:var(--danger); text-align:center;">Failed to sync complaints: ${escapeHTML(err.message)}</td></tr>`;
+        });
+
+        searchInput.addEventListener("input", renderComplaintsTable);
+        statusFilter.addEventListener("change", renderComplaintsTable);
+        categoryFilter.addEventListener("change", renderComplaintsTable);
+
+        function updateMetrics(list) {
+            const total = list.length;
+            let pending = 0;
+            let accepted = 0;
+            let escalated = 0;
+            let resolved = 0;
+            let rejected = 0;
+
+            list.forEach((c) => {
+                if (c.status === "Pending") pending++;
+                else if (c.status === "Accepted" || c.status === "Forwarded") accepted++;
+                else if (c.status === "Escalated") escalated++;
+                else if (c.status === "Resolved") resolved++;
+                else if (c.status === "Rejected") rejected++;
+            });
+
+            document.getElementById("statTotal").textContent = total;
+            document.getElementById("statPending").textContent = pending;
+            document.getElementById("statAccepted").textContent = accepted;
+            document.getElementById("statEscalated").textContent = escalated;
+            document.getElementById("statResolved").textContent = resolved;
+            document.getElementById("statRejected").textContent = rejected;
+            document.getElementById("allComplaintsCount").textContent = total;
+
+            // Update Progress Circles (Circumference = 2 * PI * 40 ~= 251.2)
+            const circumference = 251.2;
+            const setCircle = (id, textId, count) => {
+                const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                const offset = circumference - (pct / 100) * circumference;
+                const circle = document.getElementById(id);
+                if (circle) circle.style.strokeDashoffset = String(offset);
+                const text = document.getElementById(textId);
+                if (text) text.textContent = `${pct}%`;
+            };
+
+            setCircle("chartResolved", "textResolvedPct", resolved);
+            setCircle("chartPending", "textPendingPct", pending);
+            setCircle("chartAccepted", "textAcceptedPct", accepted);
+            setCircle("chartRejected", "textRejectedPct", rejected);
+        }
+
+        function renderComplaintsTable() {
+            const q = searchInput.value.trim().toLowerCase();
+            const sFilter = statusFilter.value;
+            const cFilter = categoryFilter.value;
+
+            const filtered = complaintsList.filter((c) => {
+                const matchesQuery = !q || [
+                    c.id,
+                    c.studentName,
+                    c.studentEmail,
+                    c.category,
+                    c.location,
+                    c.currentAssignee,
+                    c.description
+                ].some((val) => String(val || "").toLowerCase().includes(q));
+
+                const matchesStatus = sFilter === "ALL" || c.status === sFilter;
+                const matchesCategory = cFilter === "ALL" || c.category === cFilter;
+
+                return matchesQuery && matchesStatus && matchesCategory;
+            });
+
+            if (filtered.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">No grievances match your criteria.</td></tr>`;
+                return;
+            }
+
+            tableBody.innerHTML = "";
+
+            filtered.forEach((c) => {
+                const tr = document.createElement("tr");
+
+                const statusClass = getStatusBadgeClass(c.status);
+                const priorityClass = getPriorityBadgeClass(c.priority);
+
+                tr.innerHTML = `
+                    <td><strong>${escapeHTML(c.id || "CMP")}</strong></td>
+                    <td>
+                        <div>${escapeHTML(c.studentName || "—")}</div>
+                        <small style="color:var(--text-muted);">${escapeHTML(c.studentEmail || "")}</small>
+                    </td>
+                    <td>${escapeHTML(c.category || "—")}</td>
+                    <td><span class="priority ${priorityClass}">${escapeHTML(c.priority || "Medium")}</span></td>
+                    <td><span class="badge ${statusClass}">${escapeHTML(c.status || "Pending")}</span></td>
+                    <td><span class="badge badge-accepted">${escapeHTML(c.currentAssignee || "None")}</span></td>
+                    <td><small>${escapeHTML(formatDateTime(c.createdAt))}</small></td>
+                    <td>
+                        <button class="btn btn-outline btn-sm admin-reassign-btn" data-docid="${c.firestoreId}" title="Reassign to another authority">
+                            🔁 Reassign
+                        </button>
+                    </td>
+                `;
+
+                tableBody.appendChild(tr);
+            });
+
+            // Reassign handlers
+            document.querySelectorAll(".admin-reassign-btn").forEach((btn) => {
+                btn.addEventListener("click", async () => {
+                    const docId = btn.getAttribute("data-docid");
+                    const c = complaintsList.find((item) => item.firestoreId === docId);
+
+                    const optionsHtml = AUTHORITY_ROLES
+                        .map((r) => `<option value="${r}" ${c && c.currentAssignee === r ? "selected" : ""}>${r}</option>`)
+                        .join("");
+
+                    const modal = await showModal({
+                        title: `Reassign Grievance: ${c ? c.id : ""}`,
+                        bodyHtml: `
+                            <p style="font-size:0.9rem; color:#475569; margin-bottom:12px;">
+                                As Administrator, you can override and reassign this grievance to any college authority.
+                            </p>
+                            <div class="form-group">
+                                <label for="reassignRoleSelect">New Assigned Authority *</label>
+                                <select id="reassignRoleSelect" name="reassignRole" required>
+                                    ${optionsHtml}
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="reassignComment">Administrative Reason *</label>
+                                <textarea id="reassignComment" name="reassignComment" placeholder="Explain the administrative reassignment reason..." required></textarea>
+                            </div>
+                        `,
+                        confirmText: "Reassign Authority",
+                        confirmClass: "btn-primary"
+                    });
+
+                    if (modal.confirmed) {
+                        const newRole = modal.data?.reassignRole;
+                        const reason = modal.data?.reassignComment?.trim();
+
+                        if (!newRole) {
+                            showToast("Please choose an authority.", "error");
+                            return;
+                        }
+                        if (!reason) {
+                            showToast("Administrative reason is required.", "error");
+                            return;
+                        }
+
+                        try {
+                            const nowIso = new Date().toISOString();
+                            const historyEntry = {
+                                action: "Reassigned by Admin",
+                                byRole: "Admin",
+                                comment: `Reassigned to ${newRole}: ${reason}`,
+                                timestamp: nowIso
+                            };
+
+                            await updateDoc(doc(db, "complaints", docId), {
+                                currentAssignee: newRole,
+                                history: arrayUnion(historyEntry),
+                                updatedAt: serverTimestamp()
+                            });
+
+                            // Notify the new authority
+                            await createNotification(db, {
+                                toRole: newRole,
+                                title: `Complaint Reassigned to You (${c.id})`,
+                                message: `Admin reassigned ${c.id} to you: "${reason}"`,
+                                complaintId: docId
+                            });
+
+                            showToast(`Grievance successfully reassigned to ${newRole}.`, "success");
+                        } catch (err) {
+                            showToast("Failed to reassign: " + err.message, "error");
+                        }
+                    }
+                });
+            });
+        }
+
+        // Users Directory Loader
+        let directoryUsers = [];
+        const usersTableBody = document.getElementById("adminUsersTableBody");
+        const userSearchInput = document.getElementById("userSearchInput");
+
+        async function loadUsersDirectory() {
+            try {
+                usersTableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px;">Loading directory from Firestore...</td></tr>`;
+                const usersSnap = await getDocs(collection(db, "users"));
+                directoryUsers = [];
+                usersSnap.forEach((d) => {
+                    directoryUsers.push({ uid: d.id, ...d.data() });
+                });
+
+                document.getElementById("usersCount").textContent = String(directoryUsers.length);
+                renderUsersTable();
+            } catch (err) {
+                usersTableBody.innerHTML = `<tr><td colspan="6" style="color:var(--danger); text-align:center;">Failed to load users: ${escapeHTML(err.message)}</td></tr>`;
+            }
+        }
+
+        userSearchInput.addEventListener("input", renderUsersTable);
+
+        function renderUsersTable() {
+            const term = userSearchInput.value.trim().toLowerCase();
+            const filtered = directoryUsers.filter((u) => {
+                return !term || [
+                    u.name,
+                    u.email,
+                    u.role,
+                    u.department,
+                    u.phone
+                ].some((val) => String(val || "").toLowerCase().includes(term));
+            });
+
+            if (filtered.length === 0) {
+                usersTableBody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">No users found.</td></tr>`;
+                return;
+            }
+
+            usersTableBody.innerHTML = "";
+            filtered.forEach((u) => {
+                const tr = document.createElement("tr");
+                const roleBadge = u.role === "student" ? "badge-default" : "badge-accepted";
+
+                tr.innerHTML = `
+                    <td><strong>${escapeHTML(u.name || "—")}</strong></td>
+                    <td>${escapeHTML(u.email || "—")}</td>
+                    <td><span class="badge ${roleBadge}">${escapeHTML(u.role || "student")}</span></td>
+                    <td>${escapeHTML(u.department || "—")}</td>
+                    <td>${escapeHTML(u.phone || "—")}</td>
+                    <td><code style="font-size:0.75rem;">${escapeHTML(u.uid ? u.uid.substring(0, 8) + '...' : '—')}</code></td>
+                `;
+                usersTableBody.appendChild(tr);
+            });
+        }
+    </script>
+</body>
+</html>

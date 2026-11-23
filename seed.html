@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seed Authorities - Oriental College of Technology</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .seed-box {
+            max-width: 650px;
+            margin: 50px auto;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+            text-align: left;
+        }
+        .authority-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+        .authority-table th, .authority-table td {
+            padding: 10px;
+            border: 1px solid #e2e8f0;
+        }
+        .authority-table th {
+            background: #172554;
+            color: white;
+        }
+        .log-box {
+            background: #0f172a;
+            color: #38bdf8;
+            font-family: monospace;
+            padding: 15px;
+            border-radius: 8px;
+            max-height: 220px;
+            overflow-y: auto;
+            margin-top: 15px;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="seed-box">
+        <h2>🌱 One-Time Authority Account Provisioning</h2>
+        <p>This utility provisions the required sample College Authority accounts in Firebase Authentication and assigns their verified roles in Cloud Firestore (<code>users/{uid}</code>).</p>
+
+        <table class="authority-table">
+            <thead>
+                <tr>
+                    <th>Role</th>
+                    <th>Email</th>
+                    <th>Default Password</th>
+                    <th>Assigned Categories</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>TG</strong></td>
+                    <td>tg@oct.ac.in</td>
+                    <td>Oct@12345</td>
+                    <td>Classroom</td>
+                </tr>
+                <tr>
+                    <td><strong>Warden</strong></td>
+                    <td>warden@oct.ac.in</td>
+                    <td>Oct@12345</td>
+                    <td>Hostel</td>
+                </tr>
+                <tr>
+                    <td><strong>HOD</strong></td>
+                    <td>hod@oct.ac.in</td>
+                    <td>Oct@12345</td>
+                    <td>Faculty, Lab, Academic, Infrastructure</td>
+                </tr>
+                <tr>
+                    <td><strong>Dean</strong></td>
+                    <td>dean@oct.ac.in</td>
+                    <td>Oct@12345</td>
+                    <td>Safety / Security / Ragging</td>
+                </tr>
+                <tr>
+                    <td><strong>Director</strong></td>
+                    <td>director@oct.ac.in</td>
+                    <td>Oct@12345</td>
+                    <td>Final Escalation Authority</td>
+                </tr>
+                <tr>
+                    <td><strong>Admin</strong></td>
+                    <td>admin@oct.ac.in</td>
+                    <td>Oct@12345</td>
+                    <td>Library, WiFi, Canteen, Transport, Other, Full Analytics</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <button id="seedBtn" class="btn btn-primary" style="width:100%; padding: 14px; font-size: 16px;">
+            Run Authority Provisioning
+        </button>
+
+        <div id="seedLogs" class="log-box" style="display:none;"></div>
+
+        <div style="margin-top: 20px; text-align: center;">
+            <a href="authority-login.html" class="btn btn-secondary">Proceed to Authority Login &rarr;</a>
+        </div>
+    </div>
+
+    <script type="module">
+        import { 
+            auth, 
+            db, 
+            createUserWithEmailAndPassword, 
+            signInWithEmailAndPassword,
+            signOut,
+            doc, 
+            setDoc, 
+            serverTimestamp 
+        } from "./js/firebase-config.js";
+
+        const AUTHORITIES = [
+            { role: "TG", name: "Prof. Rajesh Sharma (TG)", email: "tg@oct.ac.in", department: "Computer Science" },
+            { role: "Warden", name: "Mr. Suresh Verma (Warden)", email: "warden@oct.ac.in", department: "Hostel Administration" },
+            { role: "HOD", name: "Dr. Ananya Sen (HOD)", email: "hod@oct.ac.in", department: "Engineering Department" },
+            { role: "Dean", name: "Dr. Arvind Patel (Dean)", email: "dean@oct.ac.in", department: "Student Affairs" },
+            { role: "Director", name: "Dr. K. L. Mehta (Director)", email: "director@oct.ac.in", department: "Office of the Director" },
+            { role: "Admin", name: "System Administrator", email: "admin@oct.ac.in", department: "IT & Administration" }
+        ];
+
+        const DEFAULT_PASSWORD = "Oct@12345";
+        const seedBtn = document.getElementById("seedBtn");
+        const logBox = document.getElementById("seedLogs");
+
+        function log(msg) {
+            logBox.style.display = "block";
+            const line = document.createElement("div");
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logBox.appendChild(line);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        seedBtn.addEventListener("click", async () => {
+            seedBtn.disabled = true;
+            seedBtn.textContent = "Provisioning accounts...";
+            logBox.innerHTML = "";
+            log("Starting authority provisioning...");
+
+            for (const item of AUTHORITIES) {
+                try {
+                    let uid = null;
+                    try {
+                        const cred = await createUserWithEmailAndPassword(auth, item.email, DEFAULT_PASSWORD);
+                        uid = cred.user.uid;
+                        log(`✓ Created Auth user: ${item.email}`);
+                    } catch (createErr) {
+                        if (createErr.code === "auth/email-already-in-use") {
+                            log(`ℹ User ${item.email} already exists in Auth. Authenticating to obtain UID...`);
+                            const signinCred = await signInWithEmailAndPassword(auth, item.email, DEFAULT_PASSWORD);
+                            uid = signinCred.user.uid;
+                        } else {
+                            throw createErr;
+                        }
+                    }
+
+                    if (uid) {
+                        await setDoc(doc(db, "users", uid), {
+                            uid: uid,
+                            name: item.name,
+                            email: item.email,
+                            role: item.role,
+                            department: item.department,
+                            phone: "9876543210",
+                            updatedAt: serverTimestamp()
+                        }, { merge: true });
+                        log(`✓ Updated Firestore role for ${item.email} -> ${item.role}`);
+                    }
+                } catch (err) {
+                    log(`✗ Error provisioning ${item.email}: ${err.message}`);
+                }
+            }
+
+            // Clean signout after seeding so user starts fresh on login pages
+            await signOut(auth);
+
+            log("All authority accounts provisioned successfully!");
+            seedBtn.disabled = false;
+            seedBtn.textContent = "Re-run Provisioning";
+        });
+    </script>
+</body>
+</html>

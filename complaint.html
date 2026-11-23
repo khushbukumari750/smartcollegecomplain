@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Submit New Complaint - Smart College Complaint System | OCT</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header class="app-header">
+        <div class="header-container">
+            <div class="brand">
+                <div>
+                    <span class="brand-logo-text">Oriental College of Technology</span>
+                    <span class="brand-subtitle">Smart College Complaint Management System</span>
+                </div>
+            </div>
+            <div class="nav-actions">
+                <span class="user-badge" id="studentHeaderBadge">👨‍🎓 Loading...</span>
+                <a href="dashboard.html" class="btn btn-back">
+                    &larr; Dashboard
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <div class="dashboard-container" style="max-width: 680px;">
+        <div class="top-box">
+            <h1 style="color:var(--primary-dark); font-size:1.6rem; margin-bottom:6px;">Lodge a Grievance</h1>
+            <p style="color:var(--text-muted); font-size:0.95rem; margin-bottom:20px;">
+                Fill out the form below. Your complaint will be routed directly to the designated college authority.
+            </p>
+
+            <form id="complaintForm" novalidate>
+                <!-- Category -->
+                <div class="form-group">
+                    <label for="category">Complaint Category *</label>
+                    <select id="category" name="category" required>
+                        <option value="">-- Select Category --</option>
+                        <option value="Hostel">Hostel</option>
+                        <option value="Classroom">Classroom</option>
+                        <option value="Faculty">Faculty</option>
+                        <option value="Lab">Lab</option>
+                        <option value="Academic">Academic / Examination</option>
+                        <option value="Infrastructure">Infrastructure</option>
+                        <option value="Safety">Safety / Security / Ragging</option>
+                        <option value="Library">Library</option>
+                        <option value="WiFi">Wi-Fi / Internet</option>
+                        <option value="Canteen">Canteen</option>
+                        <option value="Transport">Transport</option>
+                        <option value="Other">Other College Matters</option>
+                    </select>
+                </div>
+
+                <!-- Complaint Type -->
+                <div class="form-group">
+                    <label for="type">Specific Problem Type *</label>
+                    <select id="type" name="type" required disabled>
+                        <option value="">-- First Select a Category --</option>
+                    </select>
+                </div>
+
+                <!-- Location -->
+                <div class="form-group">
+                    <label for="location">Location / Room Number / Block *</label>
+                    <input 
+                        type="text" 
+                        id="location" 
+                        name="location" 
+                        placeholder="e.g. Block B - Room 204, Boys Hostel Wing A" 
+                        required
+                    >
+                </div>
+
+                <!-- Priority -->
+                <div class="form-group">
+                    <label for="priority">Urgency / Priority *</label>
+                    <select id="priority" name="priority" required>
+                        <option value="Low">🟢 Low - Routine issue</option>
+                        <option value="Medium" selected>🟡 Medium - Needs attention</option>
+                        <option value="High">🔴 High - Urgent / Impedes academics or safety</option>
+                    </select>
+                </div>
+
+                <!-- Description -->
+                <div class="form-group">
+                    <label for="description">Detailed Description *</label>
+                    <textarea 
+                        id="description" 
+                        name="description" 
+                        placeholder="Please describe your problem thoroughly so the authority can resolve it effectively..." 
+                        required
+                    ></textarea>
+                </div>
+
+                <!-- Photo / Video Proof Upload -->
+                <div class="form-group">
+                    <label for="proof">Attach Supporting Photo or Video (Optional)</label>
+                    <input 
+                        type="file" 
+                        id="proof" 
+                        name="proof" 
+                        accept="image/*,video/*"
+                    >
+                    <small style="color:var(--text-muted); display:block; margin-top:4px;">
+                        Accepted: JPG, PNG, WEBP, MP4, WebM (Max 25MB)
+                    </small>
+                    <div id="uploadProgressContainer" style="display:none; margin-top:8px;">
+                        <div style="background:#e2e8f0; border-radius:4px; height:8px; overflow:hidden;">
+                            <div id="uploadProgressBar" style="background:var(--primary); width:0%; height:100%; transition:width 0.2s;"></div>
+                        </div>
+                        <small id="uploadProgressText" style="color:var(--text-muted); font-size:0.75rem;">Uploading proof: 0%</small>
+                    </div>
+                </div>
+
+                <!-- Assigned Authority Display Box (Single source of truth) -->
+                <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:16px; margin: 20px 0;">
+                    <span style="font-size:0.8rem; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Automated Routing</span>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+                        <span style="font-size:0.95rem; font-weight:600; color:var(--text-main);">Assigned Authority:</span>
+                        <span id="assignedAuthorityBadge" class="badge badge-default" style="font-size:0.95rem; padding:6px 14px;">
+                            — Select Category —
+                        </span>
+                    </div>
+                    <small style="display:block; color:var(--text-muted); margin-top:6px;">
+                        The grievance will be directly routed to this authority's queue.
+                    </small>
+                </div>
+
+                <!-- Action Buttons -->
+                <div style="display:flex; gap:12px; margin-top:20px;">
+                    <a href="dashboard.html" class="btn btn-secondary" style="flex:1;">Cancel</a>
+                    <button type="submit" id="submitBtn" class="btn btn-primary" style="flex:2;">
+                        Submit Grievance
+                    </button>
+                </div>
+
+                <p id="statusMsg" style="margin-top:16px; font-size:0.9rem; text-align:center; min-height:20px;"></p>
+            </form>
+        </div>
+    </div>
+
+    <script type="module">
+        import { 
+            db, 
+            storage, 
+            collection, 
+            addDoc, 
+            serverTimestamp, 
+            ref, 
+            uploadBytesResumable, 
+            getDownloadURL 
+        } from "./js/firebase-config.js";
+
+        import { requireAuth } from "./js/auth.js";
+        import { 
+            CATEGORY_AUTHORITY_MAP, 
+            COMPLAINT_TYPES, 
+            generateComplaintCode, 
+            createNotification, 
+            showToast 
+        } from "./js/utils.js";
+
+        // Route Guard: Student role only
+        const authData = (await requireAuth({ allowedRoles: ["student"] })) || {};
+        const { user = {}, profile = {} } = authData;
+
+        // Populate student badge
+        const studentBadge = document.getElementById("studentHeaderBadge");
+        studentBadge.textContent = `👨‍🎓 ${(profile && profile.name) || user.email}`;
+
+        // DOM references
+        const categorySelect = document.getElementById("category");
+        const typeSelect = document.getElementById("type");
+        const locationInput = document.getElementById("location");
+        const prioritySelect = document.getElementById("priority");
+        const descriptionInput = document.getElementById("description");
+        const proofInput = document.getElementById("proof");
+        const assignedBadge = document.getElementById("assignedAuthorityBadge");
+        const submitBtn = document.getElementById("submitBtn");
+        const statusMsg = document.getElementById("statusMsg");
+        const progressContainer = document.getElementById("uploadProgressContainer");
+        const progressBar = document.getElementById("uploadProgressBar");
+        const progressText = document.getElementById("uploadProgressText");
+
+        // Dynamic category selection & single source of truth mapping
+        categorySelect.addEventListener("change", () => {
+            const cat = categorySelect.value;
+            typeSelect.innerHTML = '<option value="">-- Select Problem Type --</option>';
+
+            if (!cat) {
+                typeSelect.disabled = true;
+                assignedBadge.textContent = "— Select Category —";
+                assignedBadge.className = "badge badge-default";
+                return;
+            }
+
+            const authority = CATEGORY_AUTHORITY_MAP[cat] || "Admin";
+            assignedBadge.textContent = authority;
+            assignedBadge.className = "badge badge-accepted";
+
+            const types = COMPLAINT_TYPES[cat] || ["General Issue"];
+            types.forEach((t) => {
+                const opt = document.createElement("option");
+                opt.value = t;
+                opt.textContent = t;
+                typeSelect.appendChild(opt);
+            });
+
+            typeSelect.disabled = false;
+        });
+
+        // Form Submit
+        const form = document.getElementById("complaintForm");
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            statusMsg.textContent = "";
+            statusMsg.style.color = "var(--danger)";
+
+            const category = categorySelect.value;
+            const type = typeSelect.value;
+            const locationVal = locationInput.value.trim();
+            const priority = prioritySelect.value;
+            const description = descriptionInput.value.trim();
+            const authority = CATEGORY_AUTHORITY_MAP[category] || "Admin";
+
+            // Validations
+            if (!category || !type || !locationVal || !description) {
+                statusMsg.textContent = "Please fill all required fields.";
+                return;
+            }
+
+            // File proof validation
+            const file = proofInput.files[0];
+            let proofUrl = "";
+
+            if (file) {
+                // Size limit: 25MB
+                if (file.size > 25 * 1024 * 1024) {
+                    statusMsg.textContent = "Attached file exceeds 25MB limit. Please attach a smaller file.";
+                    return;
+                }
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = "Submitting Complaint...";
+
+            try {
+                // Upload proof if present
+                if (file) {
+                    progressContainer.style.display = "block";
+                    const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
+                    const storageRef = ref(storage, `complaints/${user.uid}/${Date.now()}_${sanitizedName}`);
+
+                    const uploadTask = uploadBytesResumable(storageRef, file);
+
+                    proofUrl = await new Promise((resolve, reject) => {
+                        uploadTask.on(
+                            "state_changed",
+                            (snapshot) => {
+                                const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+                                progressBar.style.width = `${progress}%`;
+                                progressText.textContent = `Uploading file: ${progress}%`;
+                            },
+                            (uploadErr) => {
+                                console.error("Upload error:", uploadErr);
+                                // Graceful fallback if storage bucket or network blocks
+                                resolve("");
+                            },
+                            async () => {
+                                try {
+                                    const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+                                    resolve(downloadUrl);
+                                } catch (urlErr) {
+                                    resolve("");
+                                }
+                            }
+                        );
+                    });
+                }
+
+                // Generate safe readable complaint code
+                const complaintCode = await generateComplaintCode(db);
+
+                // Initial history timeline entry
+                const nowIso = new Date().toISOString();
+                const initialHistory = [{
+                    action: "Submitted",
+                    byRole: "Student",
+                    comment: "Complaint registered in system.",
+                    timestamp: nowIso
+                }];
+
+                // Prepare Firestore document
+                const complaintDocData = {
+                    id: complaintCode,
+                    studentUid: user.uid,
+                    studentName: profile.name || user.email,
+                    studentEmail: user.email,
+                    department: profile.department || "",
+                    category: category,
+                    type: type,
+                    location: locationVal,
+                    description: description,
+                    priority: priority,
+                    status: "Pending",
+                    currentAssignee: authority,
+                    history: initialHistory,
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp(),
+                    rating: 0,
+                    feedback: "",
+                    proofUrl: proofUrl || ""
+                };
+
+                const docRef = await addDoc(collection(db, "complaints"), complaintDocData);
+
+                // Dispatch notification for student
+                await createNotification(db, {
+                    toUid: user.uid,
+                    title: `Complaint Filed (${complaintCode})`,
+                    message: `Your grievance in ${category} has been assigned to ${authority}.`,
+                    complaintId: docRef.id
+                });
+
+                statusMsg.style.color = "var(--success)";
+                statusMsg.textContent = `Complaint ${complaintCode} submitted successfully! Assigned to ${authority}. Redirecting...`;
+                showToast("Complaint registered successfully!", "success");
+
+                setTimeout(() => {
+                    window.location.replace("dashboard.html");
+                }, 1200);
+
+            } catch (err) {
+                console.error("Submission error:", err);
+                statusMsg.style.color = "var(--danger)";
+                statusMsg.textContent = `Failed to lodge complaint: ${err.message}`;
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Submit Grievance";
+                progressContainer.style.display = "none";
+            }
+        });
+    </script>
+</body>
+</html>
